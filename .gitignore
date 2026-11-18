@@ -1,0 +1,5 @@
+# Large source reference PDFs -- not needed for bug-fixing, kept local only
+*.pdf
+.streamlit/secrets.toml
+__pycache__/
+*.pyc
