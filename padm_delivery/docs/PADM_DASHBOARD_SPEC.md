@@ -4,6 +4,11 @@ Goal: Build the complete, working PADM sign-off dashboard as a Streamlit in Snow
 7 tabs, backed by Snowflake tables, views and stored procedures. Replace the manual Excel
 sign-off process with a versioned, auditable, multi-tab application.
 
+> **Revised 2026-11-19** against the real, running app (not just the original build intent).
+> Sections below marked **[UPDATED]** reflect decisions made and code shipped this session;
+> the original wording is kept struck through context where it helps explain what changed and
+> why. Treat this file, not the untouched original, as current truth going forward.
+
 Sources of truth (priority order): 1. Handwritten scope notes. 2. Requirement notepad. 3. PADM
 Sign-off Proposal. Where spec says VERIFY, do not guess -- query the database and confirm.
 
@@ -36,7 +41,8 @@ Sign-off Proposal. Where spec says VERIFY, do not guess -- query the database an
 | Output | DM_PADM_CALCULATION_RUN, DM_PADM_CALCULATION_CELL, DM_PADM_SIGNATURE_PAGE_2_SNAPSHOT |
 | Reference/audit | DM_PADM_SCORE_RANGE_RULE_1, DM_PADM_POPULATION_GROUP_RULE, DM_PADM_LIFT_TIER_RULE, DM_PADM_CHANGE_EVENT, DM_PADM_WORKFLOW_EVENT, DM_PADM_SOURCE_LOAD_BATCH |
 | Views | VW_PADM_SEGMENT_CALCULATION_CURRENT, VW_PADM_SIGNATURE_PAGE_LIVE |
-| Procedures | SP_PADM_ACTIVATE_CAMPAIGN, SP_PADM_SAVE_CAMPAIGN_ASSUMPTION, SP_PADM_SAVE_SEGMENT_ASSUMPTION, SP_PADM_ACTIVATE_CDE_VERSION, SP_PADM_SAVE_SELECTION_SET, SP_PADM_TRANSITION_CAMPAIGN_STATUS, SP_PADM_RUN_CALCULATION, SP_PADM_GENERATE_SIGNATURE_PAGE_2 |
+| Procedures | SP_PADM_ACTIVATE_CAMPAIGN, SP_PADM_SAVE_CAMPAIGN_ASSUMPTION, SP_PADM_SAVE_SEGMENT_ASSUMPTION, SP_PADM_ACTIVATE_CDE_VERSION, SP_PADM_SAVE_SELECTION_SET, **SP_PADM_TRANSITION_CAMPAIGN** (CONFIRMED real name -- 4 params incl. comment; ~~SP_PADM_TRANSITION_CAMPAIGN_STATUS~~ was an earlier invented duplicate, removed), SP_PADM_RUN_CALCULATION, SP_PADM_GENERATE_SIGNATURE_PAGE_2 |
+| **[NEW, confirmed real]** | VW_PADM_SEGMENT_SOURCE_CANDIDATE (rebuilt 2026-11-19 off T_EXPERIAN_MAILFILE/T_TRANSUNION_MAILFILE -- see 4.5), DM_PADM_CAMPAIGN_SEGMENT_1, DM_PADM_OFFER_SEGMENT_ALLOCATION (many-to-many as of 2026-11-19) |
 
 VERIFY specifically: column names PROSPECT_CREDIT_BUREAU_MODEL/SCORE on offer source/current
 view; full column lists of DM_PADM_HISTORY_SEGMENT_KEY and DM_PADM_HISTORY_SEGMENT_MAP.
@@ -113,7 +119,7 @@ NEW -> DRAFT -> IN_PROGRESS (v1, v2, ... incremental)
 | History | Keep full history of who worked on campaign and when (WORKFLOW_EVENT) |
 | Approve | Copy final state into audit/snapshot tables, set status APPROVED. No further edits. |
 | Reject | Set status back to DRAFT. Prior versions kept. |
-| Enforcement | All transitions go through SP_PADM_TRANSITION_CAMPAIGN_STATUS only |
+| Enforcement | All transitions go through SP_PADM_TRANSITION_CAMPAIGN only (confirmed real name, see 0.1). **Confirmed: no transition path exists from APPROVED back to any editable status** -- only REJECTED -> DRAFT. Treat APPROVED as a deliberate, terminal lock; a "reopen an approved campaign" feature does not exist today. |
 
 VERIFY: if the existing CHECK constraint on DM_PADM_CAMPAIGN_1.STATUS uses different values
 (e.g. DISCOVERED/DRAFT/READY_FOR_REVIEW/COMPLETED/REOPENED), migrate to the statuses above.
@@ -174,9 +180,17 @@ CASE WHEN CAMPAIGN_OFFER_SEGMENT_NAME IN (
 THEN 'RETARGETING' ELSE 'PROSPECTING' END
 ```
 
-### 3.4 Manual inserts
-- CPP (per campaign date): editable field on this page. Saving writes a new
-  campaign-assumption version with CHANGE_REASON. Validation: 4 decimals, >= 0.
+### 3.4 Manual inserts **[UPDATED 2026-11-19 -- removed from this tab]**
+- ~~CPP (per campaign date): editable field on this page.~~ **Removed from Signature Page.**
+  CPP is now entered on Campaign Assumptions (campaign-level) and Segment Viewer (segment-level
+  override) only. Root cause of the original design gap: CPP's `DM_PADM_ASSUMPTION_DEFINITION`
+  row had `ASSUMPTION_LEVEL='CAMPAIGN'` instead of `'CAMPAIGN_SEGMENT'` even though it already had
+  a segment-override column -- fixing that one value was enough for the generic,
+  definitions-driven assumption UI to pick it up correctly in both other places. No manual insert
+  remains on Signature Page.
+- Also removed: the "Offers / Quantity / Segmented offers" metric tiles that used to sit above
+  the table -- not part of the sign-off proposal's field list, and redundant with the per-segment
+  numbers now shown directly in the table (see 3.6).
 
 ### 3.5 Hidden fields (stored, not displayed)
 Campaign Year, Campaign Month, Campaign Month Sequence (all derived from CAMPAIGN_GROUP_MAIL_DATE),
@@ -188,6 +202,16 @@ Times Mailed 9+%.
 - Read from VW_PADM_SIGNATURE_PAGE_LIVE -- a pre-snapshot view, same shape/formulas as the
   Signature Page 2 snapshot.
 - TIMES_MAILED_0_PERCENTAGE must be COMPUTED from the times-mailed count columns, never NULL.
+- **[UPDATED 2026-11-19] Grain changed from one row per offer to one row per segment.** The
+  view's calculated columns (Quantity, Boards, NBR, CPP, etc.) have no offer dimension on the
+  calculation side (joined only on CAMPAIGN_ID + SEGMENT_ID), so they were already identical
+  across every offer in a segment -- the old one-row-per-offer display silently inflated GRAND
+  TOTAL by each segment's offer count when summed. Fixed by collapsing to one row per segment in
+  the Python layer (`ui.collapse_to_segment()`), not in the view: the view itself is unchanged.
+  Offer-level fields that genuinely differ between offers sharing a segment (Test Type, Promo,
+  IVR, etc.) show as a distinct-value summary rather than picking one and discarding the rest.
+- **[UPDATED 2026-11-19] Only non-zero values are shown.** Zero and NULL cells in every
+  calculated grid render blank, matching the real Segment.xlsx convention -- see 7.8.
 
 ## 4. Tab 3 - Create Segment
 
@@ -203,37 +227,70 @@ Times Mailed 9+%.
   (CAMPAIGN_SEGMENT_1).
 - Block duplicates: same mandatory-field combo can't be created twice. Offer to reuse existing.
 
-### 4.2 Form fields
-1 Prospect Source Bureau (Experian, TransUnion) - Dropdown - Required (Source)
-2 Bureau Score Type - Dropdown - Required
-3 Bureau Score Range (min-max) - Two number inputs, validated against score-range rule - Required
-4 Prospect Type (Prospecting, Retargeting) - Dropdown - No
-5 Credit Bureau Model - Dropdown - No
-6 Credit Bureau Score - Dropdown - No
-7 Annual Fee - Dropdown - No
-8 Network - Dropdown - No
-9 MLA - Dropdown - No
-10 CRS Model - Dropdown - No
-11 CRS Score - Dropdown - No
-12 Risk Score Type - Dropdown - No
-13 Response Model Type - Dropdown - No
-14 Times Mailed - Multi-select (0-9+) - No
-15 Free-form field - Text - No
+### 4.2 Form fields **[UPDATED 2026-11-19 -- trimmed to the sign-off proposal's actual list]**
+1 Prospect Source Bureau (Experian, TransUnion) - Dropdown - Required (Source) -- marked `*` in UI
+2 Bureau Score Type - Dropdown - Required -- marked `*`; **cascades on Source** (see below)
+3 Bureau Score Range (min-max) - Two number inputs, validated against score-range rule - Required -- marked `*`
+4 Annual Fee - Dropdown - No
+5 Network - Dropdown - No
+6 MLA - Dropdown - No
+7 Risk Score Type - Dropdown - No
+8 Response Model Type - Dropdown - No
+9 Times Mailed - Multi-select (0-9+) - No (stored, not yet used to filter anything -- open item)
 
-### 4.3 Offer allocation at creation
-- List available (unallocated) offers of the current campaign.
+~~Prospect Type, Credit Bureau Model, Credit Bureau Score, CRS Model, CRS Score, Free-form
+field~~ **removed** -- confirmed these belong to a different section of the sign-off proposal
+(Campaign Creation's offer-grouping dropdowns), not Segment Creation's own field list.
+
+**Bureau Score Type cascades on the selected Source**: Experian offers VS3/VS4/LIFT; TransUnion
+offers VS3/VS4/LIFT (LIFT shown for both per explicit product decision, though Credit One's own
+`T_EXPERIAN_MAILFILE`/`T_TRANSUNION_MAILFILE` data dictionaries confirm `LIFT_SCORE` exists only
+in the Experian table -- a TransUnion+LIFT segment will correctly show "no active score-range
+rules" until real TransUnion LIFT band data exists).
+
+### 4.3 Offer allocation at creation **[UPDATED 2026-11-19 -- many-to-many]**
+- ~~List available (unallocated) offers~~ **List ALL offers of the current campaign** -- an
+  offer can belong to more than one segment (explicit decision: its full Quantity/Boards/$ then
+  count independently in each segment it's on; Grand Total can exceed distinct offers mailed by
+  design). Each offer in the picker is tagged `(on N segments)` when it already has allocations.
 - Pre-suggest offers that the previously recorded matching segment used in earlier campaigns.
   User can keep/change.
-- Save to DM_PADM_OFFER_SEGMENT_ALLOCATION.
+- Save to DM_PADM_OFFER_SEGMENT_ALLOCATION. Uniqueness is enforced per *(offer, segment)* pair,
+  not per offer.
 - Actions: Create Segment, Reuse Existing Segment, Edit, Remove from Campaign.
 
 ### 4.4 Open item
 Segmentation rules are TBD. Keep rule logic in reference tables, addable without code changes.
 
+### 4.5 Governed segment pool, synced from source **[NEW 2026-11-19]**
+- DM_PADM_SEGMENT_1 (the governed segment table every tab reads) historically only ever got rows
+  through this manual Create Segment form -- unlike campaigns, which already had a real
+  discover-from-source mechanism (`discover_campaign()`). This meant completed historical
+  campaigns showed zero reusable segments even though real segment data existed in source
+  systems.
+- Added `discover_segments()`: an insert-only MERGE (never overwrites an existing governed
+  segment) from `VW_PADM_SEGMENT_SOURCE_CANDIDATE` into DM_PADM_SEGMENT_1, matched on the same
+  4-field key (Source, Score Type, Score Min, Score Max) `find_segment()` already uses. Exposed
+  as a "Sync governed segments from source" button on this tab.
+- `VW_PADM_SEGMENT_SOURCE_CANDIDATE` itself had to be rebuilt this session: its original
+  definition read from `DM_PADM_TR_MAILFILE_NORMALIZED`, confirmed **not part of this project**
+  and dropped. It now reads directly from `CSTONE_BIZ.REFERENCE.T_EXPERIAN_MAILFILE` /
+  `T_TRANSUNION_MAILFILE`, banding the raw `PRESCREEN_VANTAGE_V3`/`V4`/`LIFT_SCORE` columns
+  against `DM_PADM_SCORE_RANGE_RULE_1`.
+
 ## 5. Tab 4 - Campaign Assumptions
 
-### 5.1 Rules
-- Keep assumptions at BOTH campaign level and segment level. Segment-level overrides campaign.
+### 5.1 Rules **[UPDATED 2026-11-19 -- campaign-level only]**
+- ~~Keep assumptions at BOTH campaign level and segment level~~. **Segment-level assumptions
+  removed from this tab entirely** -- Segment Viewer is now the single place to view/edit
+  segment-level overrides, which also prepopulate from this tab's campaign-level values (see
+  7.7). This tab shows CPP, Unit Cost and whatever else has a real campaign-level column --
+  generic/data-driven (any `DM_PADM_ASSUMPTION_DEFINITION` row with a non-null `CAMPAIGN_COLUMN`
+  shows automatically), not a hardcoded field list.
+- **Flagged, not resolved**: `NBR`'s segment-level override (`NBR_OVERRIDE`) has nowhere left to
+  be edited -- its definition row is marked `ENTERED_ON='ASSUMPTIONS'` (meant for this tab), not
+  `'SEGMENT_VIEWER'`/`'BOTH'`. If a segment-level NBR override is still needed, change its
+  `ENTERED_ON` to `'BOTH'` (same fix already applied to CPP) so Segment Viewer picks it up.
 - Store the data so far along with new inserts: every save creates a new version, old versions
   kept, via IS_CURRENT and ROW_VERSION.
 - Add validation + type for each assumption (assumption-definition reference table: name, data
@@ -259,32 +316,48 @@ Segmentation rules are TBD. Keep rule logic in reference tables, addable without
 
 ## 6. Tab 5 - Population Description
 
-### 6.1 Rules
-- Group segments by AF-to-score data: Annual Fee, then score band.
+### 6.1 Rules **[UPDATED 2026-11-19 -- rebuilt segment-first, per the user's explicit call: the
+original AF/score-band grouped layout was reported as "overwhelming"]**
+- ~~Group segments by AF-to-score data: Annual Fee, then score band~~. **Segment-first instead**:
+  pick a *set* of segments (multiselect -- "a population description is given to a set of
+  segments, not just one"), they share one label, each still keeps its own offer multiselect.
+  Many-to-many: the same offer can be picked into more than one selected segment's list in one
+  save.
 - Below each segment, provide a dropdown (multi-select) to assign one or more offers to that
   segment.
-- Show the population description with sub-totals per group (quantity + other numeric cols).
-- Let the user label each group (used on sign-off doc). Default labels from
-  DM_PADM_POPULATION_GROUP_RULE, e.g. `EXPERIAN LOW SCORE 530-549`. **Do not build labels with
-  Python string logic.**
+- Show the population description with sub-totals per group (quantity + other numeric cols) --
+  implemented as per-segment figures plus one campaign-wide Grand Total; because of many-to-many
+  this total can exceed the true count of distinct offers mailed (a shared offer's numbers count
+  once per segment it's on), by design.
+- Let the user label each group (used on sign-off doc). ~~Default labels from
+  DM_PADM_POPULATION_GROUP_RULE~~ -- **confirmed unnecessary**: the real Signature Page export's
+  "Sub-Total ..." rows are themselves just free text saved per allocation, not driven by a rule
+  table. The label field is plain free text, pre-filled with a best-effort suggestion (`Sub-Total
+  <source or MLA> <band>`) built from the segment's own fields -- a starting point to edit, not an
+  exact match (no governed table exists for "Core"/"Expansion"-style wording seen in some real
+  rows). **Do not build labels with Python string logic beyond this simple suggestion** -- the
+  user always has final say via the editable text field.
 - Offers ideally remain the same across campaign segments. Default each segment's offers to the
   previous allocation, let user change.
 - Maintain allocation table: DM_PADM_OFFER_SEGMENT_ALLOCATION (Campaign+Offer Reservation
-  Code+Segment). Versioned, each change audited.
+  Code+Segment). Versioned, each change audited. An offer may have more than one current row
+  (one per segment it's allocated to) -- this table is many-to-many by design now, not 1:1.
 - Allow changes to segment-to-offer links for existing segments on this page.
 
-### 6.2 Layout
+### 6.2 Layout **[UPDATED 2026-11-19]**
 ```
-GROUP: <AF> | <Score band>                              [Group label: editable]
-    Segment A  [Offers v multi-select]   Qty  ...
-    Segment B  [Offers v multi-select]   Qty  ...
-    -- Sub-total --------------------   Qty  ...
-GROUP: ...
-== Grand Total ======================   Qty  ...
+Segment(s) multiselect: [ Segment A ] [ Segment B ] ...   <- a set, shares one label below
+Population description (free text, suggested default):  [Sub-Total EXPERIAN 550-600        ]
+
+  Segment A   [Offers v multi-select]   Qty  ...
+  Segment B   [Offers v multi-select]   Qty  ...
+
+== Grand Total (campaign-wide) ======================   Qty  ...
 ```
 
 ### 6.3 Actions
-Save Allocation (new version + CHANGE_REASON) and Reset to Previous Allocation.
+Save (new version + CHANGE_REASON, applies to every segment currently selected) and Reset to
+Previous Allocation (per segment).
 
 ## 7. Tab 6 - Segment Viewer (Excel-style grids)
 
@@ -309,10 +382,13 @@ Total
 Rows = tiers (TRM10 tier 1...N) + Total row. Columns = Times Mailed buckets 0...9+ + Total
 column. Show Total row AND Total column on EVERY grid.
 
-### 7.3 Selection % grid (the editable input grid)
+### 7.3 Selection % grid (the editable input grid) **[UPDATED 2026-11-19 -- 3-color highlight]**
 - Prepopulate with the previous month's selections, matched on the segment filters of the new
   campaign.
-- **Highlight prior-month selected cells in yellow** (prior value > 0).
+- ~~Highlight prior-month selected cells in yellow (prior value > 0)~~. **Extended to 3 colors,
+  priority blue > green > yellow**: blue = cell differs from what's currently saved (unsaved
+  edit -- most actionable, shown first); green = cell matches what's currently saved and is
+  non-zero; yellow = prior campaign had a selection here, but neither of the above applies.
 - Users can add/remove additional selections (edit any cell, 0 = remove).
 - Applying % must work like Excel: edit a single cell; select a range (rows/cols/block) and
   apply one % to all of it; fill a whole row/column; copy/paste multiple cells; clear a range.
@@ -368,33 +444,41 @@ column. Show Total row AND Total column on EVERY grid.
 | Unit Cost | Manual input on segment tab | No change |
 | Seasonality Adjustment | Manual input on segment tab | No change |
 
-### 7.7 Segment-level inputs on this tab
+### 7.7 Segment-level inputs on this tab **[UPDATED 2026-11-19 -- prepopulation + CPP added]**
 These sit above the grids, segment-specific. Save via SP_PADM_SAVE_SEGMENT_ASSUMPTION.
-- Rate Adjustment: 2 decimals
-- Seasonality Rate Adjustment: percentage, 2 decimals, CAN BE NEGATIVE
-- Unwind Rate Adjustment: 2 decimals
-- Unit Cost: 2 decimals, >= 0
+- CPP: prepopulates from the campaign's current/latest assumption when no segment override
+  exists yet; still editable/overridable per segment here. (This is the field that moved off
+  Signature Page -- see 3.4.)
+- Unit Cost: 2 decimals, >= 0. Also prepopulates from the campaign's current value.
+- Rate Adjustment: 2 decimals. No campaign-level counterpart -- nothing to prepopulate from.
+- Seasonality Rate Adjustment: percentage, 2 decimals, CAN BE NEGATIVE. No campaign-level
+  counterpart.
+- Unwind Rate Adjustment: 2 decimals. No campaign-level counterpart.
 
-### 7.8 Calculated grids - order of calculation
-Display the grids IN CALCULATION ORDER, top to bottom. Every grid uses the same Tier x Times
-Mailed shape with totals. At the START of each grid, show its formula as a caption placeholder
-(for testing), e.g. `Booked Pre-Unwind = Selected Quantity x Effective NRR`.
-| Order | Grid | Formula |
-|---|---|---|
-| 1 | Selection % (input) | User input, prepopulated from prior month |
-| 2 | MKU / CDE Volume | Loaded volume |
-| 3 | Post-EMS Volume | CDE_VOLUME x (1 - EMS_REDUCTION_RATE) |
-| 4 | Selected Quantity | ROUND(Post-EMS Volume x Selection %, 0) |
-| 5 | Base NRR | Boarded Count / Mail Quantity (historical, Vivian data) |
-| 6 | Effective NRR | Base NRR x (1+Rate Adjustment) x (1-Seasonality Reduction) |
-| 7 | Booked Pre-Unwind | Selected Quantity x Effective NRR |
-| 8 | Effective Unwind Rate | Historical Unwind Rate x (1+Unwind Rate Adjustment) |
-| 9 | Expected Unwinds | Booked Pre-Unwind x Effective Unwind Rate |
-| 10 | Booked Post-Unwind | Booked Pre-Unwind x (1-Effective Unwind Rate) |
-| 11 | Marketing Cost | Selected Quantity x CPP |
-| 12 | Booking Cost | Booked Pre-Unwind x Unit Cost |
-| 13 | Pre-Unwind CPA | Marketing Cost / Booked Pre-Unwind |
-| 14 | Post-Unwind CPA | (Marketing Cost + Booking Cost) / Booked Post-Unwind |
+### 7.8 Calculated grids - order of calculation **[UPDATED 2026-11-19 -- side-by-side layout
+matching the real Segment.xlsx the user provided; 14 grids -> 22]**
+~~Display the grids IN CALCULATION ORDER, top to bottom~~ -- **still in calculation order, but
+grouped into rows of 2-3 grids shown side by side**, each with its own horizontal + vertical
+scrollbar, matching the real Excel alignment. Universe-vs-Selected pairs were already being
+calculated in Python before this session (`formulas.calculate()`) -- only their side-by-side
+display is new, except for 2 genuinely new grid definitions (Selected NRR, Historical Unwind
+Rate) that reuse values already computed. **Only non-zero values are shown** -- zero/NULL cells
+render blank, matching the Excel convention (also applied to Signature Page -- see 3.6).
+| Row | Grids shown side by side |
+|---|---|
+| 1 | Selection % (input) -- *separate section above, own save button, unaffected by this change* |
+| 2 | CDE Volume · Universe Post-EMS · Selections |
+| 3 | Base NRR · Effective NRR · Selected NRR |
+| 4 | Historical Unwind Rate · Effective Unwind Rate · Booked Pre-Unwind (Selected) · Universe Booked Pre-Unwind |
+| 5 | Pre-Unwind CPA Universe · Pre-Unwind CPA (Selected) |
+| 6 | Post-Unwind CPA Universe · Post-Unwind CPA Selected |
+| 7 | Universe Marketing Cost · Selected Marketing Cost |
+| 8 | Universe Booking Cost · Selected Booking Cost |
+| 9 | Universe Expected Unwinds · Selected Expected Unwinds |
+| 10 | Universe Booked Post-Unwind · Selected Booked Post-Unwind |
+
+Formulas are unchanged from the original spec (see below) -- this was a display/layout change,
+not a calculation change.
 
 Rules for calculated grids:
 - A CPA grid can't be calculated before Marketing Cost and Booked Pre-Unwind exist. Enforce the
