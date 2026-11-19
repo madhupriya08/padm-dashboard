@@ -698,6 +698,22 @@ def reuse_segment(session, campaign_id, segment_id, offer_ids, reason):
         _insert_allocations(session, campaign_id, segment_id, offer_ids, reason, "REUSED")
 
 
+def reuse_all_segments(session, campaign_id, segment_ids, reason):
+    """Bulk-link every given governed segment onto this campaign (no offer allocation -- that
+    stays a per-segment step afterward, via Create Segment's edit panel or Population
+    Description). Safe to call with segments already on the campaign: _ensure_campaign_segment()
+    is a NOT-EXISTS-guarded insert, so duplicates are silently skipped, not double-added."""
+    _assert_editable(session, campaign_id)
+    if not segment_ids:
+        return 0
+    with transaction(session):
+        for segment_id in segment_ids:
+            _ensure_campaign_segment(session, campaign_id, segment_id, reason, "BULK_REUSE")
+            _change_event(session, campaign_id, "CAMPAIGN_SEGMENT", segment_id, "REUSED", None,
+                          {"SEGMENT_ID": segment_id}, reason)
+    return len(segment_ids)
+
+
 def edit_segment(session, campaign_id, segment_id, expected_row_version, changes, reason):
     """changes: {column: new value} for optional attributes only (mandatory fields define the
     governed segment and its name)."""

@@ -160,6 +160,17 @@ def _reuse_any(session, campaign, offers, allocations, segments):
         if candidates.empty:
             st.caption("Every governed segment is already on this campaign.")
             return
+        st.caption(f"{len(candidates)} governed segment(s) not yet on this campaign "
+                   "(e.g. just added via \"Sync governed segments from source\").")
+        bulk_reason = ui.reason_input("cs_reuse_all_reason", disabled=campaign["locked"])
+        if st.button(f"Reuse ALL {len(candidates)} remaining governed segment(s)", icon=":material/playlist_add:",
+                      disabled=campaign["locked"], key="cs_reuse_all_btn"):
+            if ui.require_reason(bulk_reason):
+                ui.run_action(SCOPE, lambda: repository.reuse_all_segments(
+                    session, campaign["id"], candidates["SEGMENT_ID"].tolist(), bulk_reason.strip()),
+                    lambda n: f"{n} segment(s) added to the campaign. Allocate offers to each via Edit below.")
+        st.divider()
+        st.caption("Or reuse one at a time with offers chosen up front:")
         segment_id = st.selectbox("Segment", candidates["SEGMENT_ID"].tolist(),
                                    format_func=lambda s: candidates.set_index("SEGMENT_ID").loc[s, "SEGMENT_NAME"],
                                    key="cs_reuse_any")
