@@ -84,6 +84,7 @@ def calculate(cells, selected_quantity=None):
     out["SELECTED_NRR"] = out["EFFECTIVE_NRR"].where(out["SELECTED_QUANTITY"] > 0)
     out["_BASE_NRR_WEIGHT"] = _col(out, "BASE_NRR", np.nan) * out["POST_EMS_VOLUME"]
     out["_SELECTION_WEIGHT"] = selection * out["POST_EMS_VOLUME"]
+    out["_HIST_UNWIND_WEIGHT"] = _col(out, "HISTORICAL_UNWIND_RATE", np.nan) * out["BOOKED_PRE_UNWIND_UNIVERSE"]
     return out
 
 
@@ -93,41 +94,77 @@ def calculate(cells, selected_quantity=None):
 #   ratio=(numerator columns, denominator columns) for weighted totals, or None (sum)
 # ---------------------------------------------------------------------------------------------
 GRIDS = [
-    ("mku", "MKU / CDE Volume", "CDE_VOLUME", "localized",
-     "MKU / CDE Volume = loaded CDE volume (Count Distinct EPIN)", None),
-    ("post_ems", "Post-EMS Volume", "POST_EMS_VOLUME", "localized",
-     "Post-EMS Volume = CDE_VOLUME x (1 - EMS_REDUCTION_RATE)  [blanket 5% when no EMS rate]", None),
-    ("selected", "Selected Quantity", "SELECTED_QUANTITY", "localized",
-     "Selected Quantity = ROUND(Post-EMS Volume x Selection %, 0)", None),
+    ("mku", "CDE Volume", "CDE_VOLUME", "localized",
+     "CDE Volume = loaded CDE volume (Count Distinct EPIN)", None),
+    ("post_ems", "Universe Post-EMS", "POST_EMS_VOLUME", "localized",
+     "Universe Post-EMS = CDE_VOLUME x (1 - EMS_REDUCTION_RATE)  [blanket 5% when no EMS rate]", None),
+    ("selected", "Selections", "SELECTED_QUANTITY", "localized",
+     "Selections = ROUND(Universe Post-EMS x Selection %, 0)", None),
     ("base_nrr", "Base NRR", "BASE_NRR", "percent",
      "Base NRR = Boarded Count / Mail Quantity (historical; fallback segment -> campaign NBR)",
      (["_BASE_NRR_WEIGHT"], ["POST_EMS_VOLUME"])),
     ("eff_nrr", "Effective NRR", "EFFECTIVE_NRR", "percent",
      "Effective NRR = Base NRR x (1 + Rate Adjustment) x (1 - Seasonality Reduction)",
      (["BOOKED_PRE_UNWIND_UNIVERSE"], ["POST_EMS_VOLUME"])),
-    ("booked_pre", "Booked Pre-Unwind", "BOOKED_PRE_UNWIND_SELECTED", "%.1f",
+    ("selected_nrr", "Selected NRR", "SELECTED_NRR", "percent",
+     "Selected NRR = Effective NRR, for cells with a non-zero Selected Quantity",
+     (["BOOKED_PRE_UNWIND_SELECTED"], ["SELECTED_QUANTITY"])),
+    ("hist_unwind", "Historical Unwind Rate", "HISTORICAL_UNWIND_RATE", "percent",
+     "Historical Unwind Rate = input (exact cell -> segment fallback -> campaign default)",
+     (["_HIST_UNWIND_WEIGHT"], ["BOOKED_PRE_UNWIND_UNIVERSE"])),
+    ("booked_pre", "Booked Pre-Unwind (Selected)", "BOOKED_PRE_UNWIND_SELECTED", "%.1f",
      "Booked Pre-Unwind = Selected Quantity x Effective NRR", None),
+    ("booked_pre_universe", "Universe Booked Pre-Unwind", "BOOKED_PRE_UNWIND_UNIVERSE", "%.1f",
+     "Universe Booked Pre-Unwind = Universe Post-EMS x Effective NRR", None),
     ("eff_unwind", "Effective Unwind Rate", "EFFECTIVE_UNWIND_RATE", "percent",
      "Effective Unwind Rate = Historical Unwind Rate x (1 + Unwind Rate Adjustment)",
      (["EXPECTED_UNWINDS_UNIVERSE"], ["BOOKED_PRE_UNWIND_UNIVERSE"])),
-    ("unwinds", "Expected Unwinds", "EXPECTED_UNWINDS_SELECTED", "%.1f",
-     "Expected Unwinds = Booked Pre-Unwind x Effective Unwind Rate", None),
-    ("booked_post", "Booked Post-Unwind", "BOOKED_POST_UNWIND_SELECTED", "%.1f",
-     "Booked Post-Unwind = Booked Pre-Unwind x (1 - Effective Unwind Rate)", None),
-    ("marketing", "Marketing Cost", "MARKETING_COST_SELECTED", "dollar",
-     "Marketing Cost = Selected Quantity x CPP", None),
-    ("booking", "Booking Cost", "BOOKING_COST_SELECTED", "dollar",
-     "Booking Cost = Booked Pre-Unwind x Unit Cost", None),
-    ("pre_cpa", "Pre-Unwind CPA", "PRE_UNWIND_CPA_SELECTED", "dollar",
+    ("pre_cpa_universe", "Pre-Unwind CPA Universe", "PRE_UNWIND_CPA_UNIVERSE", "dollar",
+     "Pre-Unwind CPA Universe = Universe Marketing Cost / Universe Booked Pre-Unwind",
+     (["MARKETING_COST_UNIVERSE"], ["BOOKED_PRE_UNWIND_UNIVERSE"])),
+    ("pre_cpa", "Pre-Unwind CPA (Selected)", "PRE_UNWIND_CPA_SELECTED", "dollar",
      "Pre-Unwind CPA = Marketing Cost / Booked Pre-Unwind",
      (["MARKETING_COST_SELECTED"], ["BOOKED_PRE_UNWIND_SELECTED"])),
-    ("post_cpa", "Post-Unwind CPA", "POST_UNWIND_CPA_SELECTED", "dollar",
+    ("post_cpa_universe", "Post-Unwind CPA Universe", "POST_UNWIND_CPA_UNIVERSE", "dollar",
+     "Post-Unwind CPA Universe = (Universe Marketing + Booking Cost) / Universe Booked Post-Unwind",
+     (["MARKETING_COST_UNIVERSE", "BOOKING_COST_UNIVERSE"], ["BOOKED_POST_UNWIND_UNIVERSE"])),
+    ("post_cpa", "Post-Unwind CPA Selected", "POST_UNWIND_CPA_SELECTED", "dollar",
      "Post-Unwind CPA = (Marketing Cost + Booking Cost) / Booked Post-Unwind",
      (["MARKETING_COST_SELECTED", "BOOKING_COST_SELECTED"], ["BOOKED_POST_UNWIND_SELECTED"])),
+    ("marketing_universe", "Universe Marketing Cost", "MARKETING_COST_UNIVERSE", "dollar",
+     "Universe Marketing Cost = Universe Post-EMS x CPP", None),
+    ("marketing", "Selected Marketing Cost", "MARKETING_COST_SELECTED", "dollar",
+     "Selected Marketing Cost = Selected Quantity x CPP", None),
+    ("booking_universe", "Universe Booking Cost", "BOOKING_COST_UNIVERSE", "dollar",
+     "Universe Booking Cost = Universe Booked Pre-Unwind x Unit Cost", None),
+    ("booking", "Selected Booking Cost", "BOOKING_COST_SELECTED", "dollar",
+     "Selected Booking Cost = Booked Pre-Unwind x Unit Cost", None),
+    ("unwinds_universe", "Universe Expected Unwinds", "EXPECTED_UNWINDS_UNIVERSE", "%.1f",
+     "Universe Expected Unwinds = Universe Booked Pre-Unwind x Effective Unwind Rate", None),
+    ("unwinds", "Selected Expected Unwinds", "EXPECTED_UNWINDS_SELECTED", "%.1f",
+     "Selected Expected Unwinds = Booked Pre-Unwind x Effective Unwind Rate", None),
+    ("booked_post_universe", "Universe Booked Post-Unwind", "BOOKED_POST_UNWIND_UNIVERSE", "%.1f",
+     "Universe Booked Post-Unwind = Universe Booked Pre-Unwind x (1 - Effective Unwind Rate)", None),
+    ("booked_post", "Selected Booked Post-Unwind", "BOOKED_POST_UNWIND_SELECTED", "%.1f",
+     "Selected Booked Post-Unwind = Booked Pre-Unwind x (1 - Effective Unwind Rate)", None),
+]
+
+# Row groups for the side-by-side layout (user's explicit call, matching the real Segment.xlsx
+# alignment): each inner list is a set of grid keys (from GRIDS above) shown side by side in one
+# horizontally-scrollable row, in this exact order top to bottom.
+GRID_ROWS = [
+    ["mku", "post_ems", "selected"],
+    ["base_nrr", "eff_nrr", "selected_nrr"],
+    ["hist_unwind", "eff_unwind", "booked_pre", "booked_pre_universe"],
+    ["pre_cpa_universe", "pre_cpa"],
+    ["post_cpa_universe", "post_cpa"],
+    ["marketing_universe", "marketing"],
+    ["booking_universe", "booking"],
+    ["unwinds_universe", "unwinds"],
+    ["booked_post_universe", "booked_post"],
 ]
 
 SELECTION_GRID_CAPTION = "Selection % = user input (0-100), prepopulated from the prior month's saved selection"
-UNIVERSE_BOOKED_PRE_CAPTION = "Booked Pre-Unwind (universe) = Post-EMS Volume x Effective NRR"
 
 
 def _ordered(pivoted):

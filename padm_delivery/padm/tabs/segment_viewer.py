@@ -331,36 +331,56 @@ def _calculated_grids(session, campaign, segment_id, version, pending):
     has_cpp = calc["EFFECTIVE_CPP"].notna().any() if "EFFECTIVE_CPP" in calc else False
     has_nrr = calc["BASE_NRR"].notna().any() if "BASE_NRR" in calc else False
     has_unit = calc["EFFECTIVE_UNIT_COST"].notna().any() if "EFFECTIVE_UNIT_COST" in calc else False
+    has_hist_unwind = calc["HISTORICAL_UNWIND_RATE"].notna().any() if "HISTORICAL_UNWIND_RATE" in calc else False
     needs = {
         "base_nrr": (has_nrr, "No historical NRR and no NBR assumption."),
         "eff_nrr": (has_nrr, "Requires Base NRR."),
+        "selected_nrr": (has_nrr, "Requires Effective NRR."),
+        "hist_unwind": (has_hist_unwind, "No historical unwind rate and no Unwind Rate assumption."),
         "booked_pre": (has_nrr, "Requires Effective NRR."),
-        "eff_unwind": (calc["HISTORICAL_UNWIND_RATE"].notna().any(), "No historical unwind rate and no Unwind Rate assumption."),
+        "booked_pre_universe": (has_nrr, "Requires Effective NRR."),
+        "eff_unwind": (has_hist_unwind, "No historical unwind rate and no Unwind Rate assumption."),
         "unwinds": (has_nrr, "Requires Booked Pre-Unwind."),
+        "unwinds_universe": (has_nrr, "Requires Booked Pre-Unwind."),
         "booked_post": (has_nrr, "Requires Booked Pre-Unwind."),
+        "booked_post_universe": (has_nrr, "Requires Booked Pre-Unwind."),
         "marketing": (has_cpp, "Requires CPP (Campaign Assumptions / Signature Page)."),
+        "marketing_universe": (has_cpp, "Requires CPP (Campaign Assumptions / Signature Page)."),
         "booking": (has_nrr and has_unit, "Requires Booked Pre-Unwind and Unit Cost."),
+        "booking_universe": (has_nrr and has_unit, "Requires Booked Pre-Unwind and Unit Cost."),
         "pre_cpa": (has_cpp and has_nrr, "Requires Marketing Cost and Booked Pre-Unwind."),
+        "pre_cpa_universe": (has_cpp and has_nrr, "Requires Marketing Cost and Booked Pre-Unwind."),
         "post_cpa": (has_cpp and has_nrr and has_unit, "Requires Marketing Cost, Booking Cost and Booked Post-Unwind."),
+        "post_cpa_universe": (has_cpp and has_nrr and has_unit, "Requires Marketing Cost, Booking Cost and Booked Post-Unwind."),
     }
-    for number, (key, title, column, fmt, caption, ratio) in enumerate(formulas.GRIDS, start=2):
-        ok, why = needs.get(key, (True, ""))
-        if not ok:
-            with st.container(border=True):
-                st.markdown(f"**{number}. {title}**")
-                st.caption(caption)
-                st.caption(f":orange[Not calculated yet -- {why}]")
-            continue
-        extra = None
-        if key == "booked_post":
-            unwinds = formulas.pivot_grid(calc, "EXPECTED_UNWINDS_SELECTED").loc["Total"]
-            pre = formulas.pivot_grid(calc, "BOOKED_PRE_UNWIND_SELECTED").loc["Total"]
-            extra = ("Unwind Rate", formulas.safe_div(unwinds, pre), "percent")
-        ui.render_grid(calc, f"{number}. {title}", column, fmt, caption, ratio=ratio, extra_row=extra,
-                        key=f"sv_grid_{key}_{campaign['id']}_{segment_id}")
-        if key == "booked_pre":
-            ui.render_grid(calc, f"{number}b. Booked Pre-Unwind (universe volume)", "BOOKED_PRE_UNWIND_UNIVERSE", "%.1f",
-                            formulas.UNIVERSE_BOOKED_PRE_CAPTION, key=f"sv_grid_bpu_{campaign['id']}_{segment_id}")
+    by_key = {g[0]: g for g in formulas.GRIDS}
+    extra_rows = {
+        "booked_post": ("EXPECTED_UNWINDS_SELECTED", "BOOKED_PRE_UNWIND_SELECTED"),
+        "booked_post_universe": ("EXPECTED_UNWINDS_UNIVERSE", "BOOKED_PRE_UNWIND_UNIVERSE"),
+    }
+    # Side-by-side rows, matching the real Segment.xlsx alignment (horizontal + vertical scroll
+    # per grid, via ui.render_grid's own bordered container + fixed-height dataframe).
+    for row_number, row_keys in enumerate(formulas.GRID_ROWS, start=2):
+        st.markdown(f"**{row_number}. {' / '.join(by_key[k][1] for k in row_keys)}**")
+        cols = st.columns(len(row_keys))
+        for col, key in zip(cols, row_keys):
+            _, title, column, fmt, caption, ratio = by_key[key]
+            ok, why = needs.get(key, (True, ""))
+            with col:
+                if not ok:
+                    with st.container(border=True):
+                        st.markdown(f"**{title}**")
+                        st.caption(caption)
+                        st.caption(f":orange[Not calculated yet -- {why}]")
+                    continue
+                extra = None
+                if key in extra_rows:
+                    num_col, den_col = extra_rows[key]
+                    unwinds = formulas.pivot_grid(calc, num_col).loc["Total"]
+                    pre = formulas.pivot_grid(calc, den_col).loc["Total"]
+                    extra = ("Unwind Rate", formulas.safe_div(unwinds, pre), "percent")
+                ui.render_grid(calc, title, column, fmt, caption, ratio=ratio, extra_row=extra,
+                                key=f"sv_grid_{key}_{campaign['id']}_{segment_id}")
 
     t = formulas.totals(calc)
     c1, c2, c3, c4 = st.columns(4)
