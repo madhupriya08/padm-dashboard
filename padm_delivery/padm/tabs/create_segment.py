@@ -44,10 +44,19 @@ def _text(value):
     return value if isinstance(value, str) and value else None
 
 
-def _offer_label(offers):
+def _offer_label(offers, allocations=None):
+    """An offer can belong to more than one segment (many-to-many) -- when `allocations` is given,
+    appends how many segments it's already on, so picking it for one more is an informed choice."""
     lookup = offers.set_index("CAMPAIGN_OFFER_ID")
-    return lambda oid: (f"{lookup.loc[oid, 'OFFER_RESERVATION_CODE']} · {lookup.loc[oid, 'OFFER_DESCRIPTION'] or ''}"
-                         if oid in lookup.index else str(oid))
+    counts = allocations["CAMPAIGN_OFFER_ID"].value_counts().to_dict() if allocations is not None else {}
+
+    def label(oid):
+        if oid not in lookup.index:
+            return str(oid)
+        base = f"{lookup.loc[oid, 'OFFER_RESERVATION_CODE']} · {lookup.loc[oid, 'OFFER_DESCRIPTION'] or ''}"
+        n = counts.get(oid, 0)
+        return f"{base} (on {n} segment{'s' if n != 1 else ''})" if n else base
+    return label
 
 
 def _optional_inputs(dropdowns, key, defaults=None, disabled=False):
@@ -64,7 +73,7 @@ def _optional_inputs(dropdowns, key, defaults=None, disabled=False):
     return values
 
 
-def _create_form(session, campaign, offers, dropdowns):
+def _create_form(session, campaign, offers, allocations, dropdowns):
     locked = campaign["locked"]
     rules = repository.score_range_rules(session)
     # Union with DEFAULT_SOURCES, not `or` -- source_names() only reflects bureaus already used by
@@ -111,14 +120,13 @@ def _create_form(session, campaign, offers, dropdowns):
     existing_id = existing.iloc[0]["SEGMENT_ID"] if existing is not None and not existing.empty else None
     on_campaign = existing_id is not None and existing_id in set(repository.campaign_segments(session, campaign["id"])["SEGMENT_ID"])
 
-    available = offers[offers["SEGMENT_ID"].isna()]
     suggested = repository.suggested_offers(session, campaign["id"], existing_id)
-    st.markdown("**Offer allocation** -- available (unallocated) offers of this campaign")
+    st.markdown("**Offer allocation** -- all offers of this campaign (an offer may belong to more than one segment)")
     if suggested:
         st.caption(f"{len(suggested)} offer(s) pre-suggested from earlier campaigns of this segment -- keep or change.")
     selected = st.multiselect(
-        "Offers", available["CAMPAIGN_OFFER_ID"].tolist(), default=[o for o in suggested if o in set(available["CAMPAIGN_OFFER_ID"])],
-        format_func=_offer_label(offers), key=f"cs_offers_{existing_id}", disabled=locked,
+        "Offers", offers["CAMPAIGN_OFFER_ID"].tolist(), default=[o for o in suggested if o in set(offers["CAMPAIGN_OFFER_ID"])],
+        format_func=_offer_label(offers, allocations), key=f"cs_offers_{existing_id}", disabled=locked,
     )
 
     reason = ui.reason_input("cs_reason", disabled=locked)
@@ -141,7 +149,7 @@ def _create_form(session, campaign, offers, dropdowns):
                           f"Segment {name} created with {len(selected)} offer(s).")
 
 
-def _reuse_any(session, campaign, offers, segments):
+def _reuse_any(session, campaign, offers, allocations, segments):
     """Reuse any governed segment not yet on this campaign."""
     master = repository.segments_master(session)
     candidates = master[~master["SEGMENT_ID"].isin(segments["SEGMENT_ID"])]
@@ -152,11 +160,10 @@ def _reuse_any(session, campaign, offers, segments):
         segment_id = st.selectbox("Segment", candidates["SEGMENT_ID"].tolist(),
                                    format_func=lambda s: candidates.set_index("SEGMENT_ID").loc[s, "SEGMENT_NAME"],
                                    key="cs_reuse_any")
-        available = offers[offers["SEGMENT_ID"].isna()]
         suggested = [o for o in repository.suggested_offers(session, campaign["id"], segment_id)
-                     if o in set(available["CAMPAIGN_OFFER_ID"])]
-        selected = st.multiselect("Offers", available["CAMPAIGN_OFFER_ID"].tolist(), default=suggested,
-                                   format_func=_offer_label(offers), key=f"cs_reuse_any_offers_{segment_id}",
+                     if o in set(offers["CAMPAIGN_OFFER_ID"])]
+        selected = st.multiselect("Offers", offers["CAMPAIGN_OFFER_ID"].tolist(), default=suggested,
+                                   format_func=_offer_label(offers, allocations), key=f"cs_reuse_any_offers_{segment_id}",
                                    disabled=campaign["locked"])
         reason = ui.reason_input("cs_reuse_any_reason", disabled=campaign["locked"])
         if st.button("Reuse Existing Segment", disabled=campaign["locked"], key="cs_reuse_any_btn"):
@@ -165,10 +172,10 @@ def _reuse_any(session, campaign, offers, segments):
                               "Segment added to the campaign.")
 
 
-def _campaign_segments(session, campaign, offers, dropdowns):
+def _campaign_segments(session, campaign, offers, allocations, dropdowns):
     st.subheader("Segments on this campaign")
     segments = repository.campaign_segments(session, campaign["id"])
-    _reuse_any(session, campaign, offers, segments)
+    _reuse_any(session, campaign, offers, allocations, segments)
     if segments.empty:
         st.caption("No segments yet.")
         return
@@ -181,14 +188,15 @@ def _campaign_segments(session, campaign, offers, dropdowns):
                                format_func=lambda s: segments.set_index("SEGMENT_ID").loc[s, "SEGMENT_NAME"], key="cs_edit_pick")
     segment = segments.set_index("SEGMENT_ID").loc[segment_id]
     with st.container(border=True):
-        st.caption("Mandatory fields define the governed segment and its name, so they are fixed. "
-                   "Optional fields and offers can be edited.")
+        st.caption("Mandatory fields define the governed segment and its name, so they are fixed. Optional fields "
+                   "and offers can be edited. An offer may belong to more than one segment -- this list only "
+                   "changes this segment's own links.")
         changes = _optional_inputs(dropdowns, f"cs_edit_{segment_id}_{segment['ROW_VERSION']}",
                                     defaults=segment.to_dict(), disabled=locked)
         changed = {k: v for k, v in changes.items() if _text(v) != _text(segment.get(k))}
-        current = offers[offers["SEGMENT_ID"] == segment_id]["CAMPAIGN_OFFER_ID"].tolist()
-        options = offers[offers["SEGMENT_ID"].isna() | (offers["SEGMENT_ID"] == segment_id)]["CAMPAIGN_OFFER_ID"].tolist()
-        chosen = st.multiselect("Offers", options, default=current, format_func=_offer_label(offers),
+        current = allocations[allocations["SEGMENT_ID"] == segment_id]["CAMPAIGN_OFFER_ID"].tolist()
+        chosen = st.multiselect("Offers", offers["CAMPAIGN_OFFER_ID"].tolist(), default=current,
+                                 format_func=_offer_label(offers, allocations),
                                  key=f"cs_edit_offers_{segment_id}", disabled=locked)
         reason = ui.reason_input(f"cs_edit_reason_{segment_id}", disabled=locked)
         c1, c2 = st.columns(2)
@@ -225,7 +233,8 @@ def render(session):
                           lambda n: f"{n} new governed segment(s) added from source." if n else
                                     "No new segments found -- everything in source already exists here.")
     offers = repository.campaign_offers(session, campaign["id"])
+    allocations = repository.offer_segment_allocations(session, campaign["id"])
     dropdowns = repository.dropdown_values(session)
-    _create_form(session, campaign, offers, dropdowns)
+    _create_form(session, campaign, offers, allocations, dropdowns)
     st.divider()
-    _campaign_segments(session, campaign, offers, dropdowns)
+    _campaign_segments(session, campaign, offers, allocations, dropdowns)

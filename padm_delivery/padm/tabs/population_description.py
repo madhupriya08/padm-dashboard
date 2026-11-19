@@ -1,15 +1,17 @@
-"""Tab 5 -- Population Description (spec 6): pick a segment, edit its offers and its own
-population-description label, save. An offer can belong to one segment only.
+"""Tab 5 -- Population Description (spec 6): pick one or more segments, give them a shared
+population-description label, and set each segment's own offers. An offer can belong to any
+number of segments -- many-to-many is intentional (confirmed with the user 2026-11-19): a shared
+offer's full Quantity/Boards/$ counts independently in each segment it's allocated to, so the
+Grand Total below can be larger than the sum of distinct offers mailed.
 
-Redesigned (2026-11-19, user's explicit call) from the earlier Annual-Fee/Score-Band grouped
-layout (called "overwhelming") to a single segment-first flow, matching Create Segment / Segment
-Viewer / Campaign Assumptions' own pattern. The label is free text -- no dependency on
-DM_PADM_POPULATION_GROUP_RULE (confirmed unnecessary; see the real Signature Page export's
-"Sub-Total ..." rows, which are themselves just free text saved per allocation). A suggested
-default is prefilled (Sub-Total <source> <band>, or Sub-Total MLA <band> for MLA segments,
-matching the two patterns seen in that real export) -- it is a starting point to edit, not an
-exact match, since no governed table exists anywhere for the "Core"/"Expansion"-style wording
-seen in some of those real rows."""
+Redesigned from the earlier Annual-Fee/Score-Band grouped layout (called "overwhelming") to a
+segment-first flow: pick which segments this population description covers (one or several --
+"a set of segments", per the user), then edit each one's own offers below. The label is free
+text -- no dependency on DM_PADM_POPULATION_GROUP_RULE (confirmed unnecessary; the real
+Signature Page export's "Sub-Total ..." rows are themselves just free text saved per allocation).
+A suggested default is prefilled per the first selected segment (Sub-Total <source> <band>, or
+Sub-Total MLA <band>, matching the two patterns seen in that export) -- a starting point to edit,
+not an exact match, since no governed table exists for "Core"/"Expansion"-style wording."""
 
 import pandas as pd
 import streamlit as st
@@ -40,6 +42,19 @@ def _suggested_label(segment):
     return f"Sub-Total {middle} {band}".strip()
 
 
+def _offer_label(offers, allocations):
+    lookup = offers.set_index("CAMPAIGN_OFFER_ID")
+    counts = allocations["CAMPAIGN_OFFER_ID"].value_counts().to_dict()
+
+    def label(oid):
+        if oid not in lookup.index:
+            return str(oid)
+        base = str(lookup.loc[oid, "OFFER_RESERVATION_CODE"])
+        n = counts.get(oid, 0)
+        return f"{base} (on {n} segment{'s' if n != 1 else ''})" if n else base
+    return label
+
+
 def render(session):
     st.header("Population Description")
     campaign = ui.require_campaign(session)
@@ -53,67 +68,70 @@ def render(session):
         st.info("No segments on this campaign yet (Create Segment tab).")
         return
     offers = repository.campaign_offers(session, campaign_id)
+    allocations = repository.offer_segment_allocations(session, campaign_id)
     live = repository.signature_live(session, campaign_id)
-    label_of = offers.set_index("CAMPAIGN_OFFER_ID")["OFFER_RESERVATION_CODE"].to_dict()
     by_id = segments.set_index("SEGMENT_ID")
 
-    segment_id = st.selectbox("Segment", segments["SEGMENT_ID"].tolist(),
-                               format_func=lambda s: by_id.loc[s, "SEGMENT_NAME"], key=f"pd_segment_{campaign_id}")
-    segment = by_id.loc[segment_id]
+    segment_ids = st.multiselect(
+        "Segment(s) -- this description applies to all selected", segments["SEGMENT_ID"].tolist(),
+        format_func=lambda s: by_id.loc[s, "SEGMENT_NAME"], key=f"pd_segments_{campaign_id}",
+    )
+    if not segment_ids:
+        st.caption("Pick one or more segments above to edit their offers and population description.")
+    else:
+        first = by_id.loc[segment_ids[0]]
+        existing_labels = {allocations.loc[allocations["SEGMENT_ID"] == sid, "POPULATION_DESCRIPTION"].dropna().iloc[0]
+                            for sid in segment_ids
+                            if (allocations["SEGMENT_ID"] == sid).any()
+                            and allocations.loc[allocations["SEGMENT_ID"] == sid, "POPULATION_DESCRIPTION"].notna().any()}
+        default_label = next(iter(existing_labels)) if len(existing_labels) == 1 else _suggested_label(first)
 
-    current = offers[offers["SEGMENT_ID"] == segment_id]
-    current_offer_ids = current["CAMPAIGN_OFFER_ID"].tolist()
-    current_label = current["POPULATION_DESCRIPTION"].dropna().iloc[0] if current["POPULATION_DESCRIPTION"].notna().any() else None
-
-    # "Reset to Previous Allocation" pre-loads this segment's widgets with the previous campaign's offers.
-    reset_key = f"pd_reset_{campaign_id}_{segment_id}"
-    previous = st.session_state.get(reset_key)
-    reset_nonce = st.session_state.get(f"{reset_key}_nonce", 0)
-    default_offers = previous if previous is not None else current_offer_ids
-
-    with st.container(border=True):
-        st.markdown(f"**{segment['SEGMENT_NAME']}**")
-        options = offers[offers["SEGMENT_ID"].isna() | (offers["SEGMENT_ID"] == segment_id)]["CAMPAIGN_OFFER_ID"].tolist()
-        chosen = st.multiselect(
-            "Offers", options, default=[o for o in default_offers if o in options],
-            format_func=lambda o: label_of.get(o, str(o)), disabled=locked,
-            key=f"pd_offers_{campaign_id}_{segment_id}_{reset_nonce}",
-        )
         label = st.text_input(
-            "Population description (sign-off document)",
-            value=current_label or _suggested_label(segment),
-            help='Free text -- e.g. "Sub-Total Experian Core 550-600". Suggested default above is a '
-                 "starting point (source + band, or MLA + band), not an exact match -- edit as needed.",
-            disabled=locked, key=f"pd_label_{campaign_id}_{segment_id}_{reset_nonce}",
+            "Population description (sign-off document)", value=default_label,
+            help='Free text -- e.g. "Sub-Total Experian Core 550-600". Applies to every segment selected above. '
+                 "Suggested default is a starting point (source + band, or MLA + band), not an exact match.",
+            disabled=locked, key=f"pd_label_{campaign_id}_{'_'.join(sorted(segment_ids))}",
         )
-        rows = live[live["SEGMENT_ID"] == segment_id]
-        st.caption(_metrics_line(_sums(rows)) if not rows.empty else "No calculated figures yet for this segment.")
+
+        segment_offers = {}
+        for sid in segment_ids:
+            seg = by_id.loc[sid]
+            current = allocations.loc[allocations["SEGMENT_ID"] == sid, "CAMPAIGN_OFFER_ID"].tolist()
+            with st.container(border=True):
+                st.markdown(f"**{seg['SEGMENT_NAME']}**")
+                chosen = st.multiselect(
+                    "Offers", offers["CAMPAIGN_OFFER_ID"].tolist(), default=current,
+                    format_func=_offer_label(offers, allocations), disabled=locked,
+                    key=f"pd_offers_{campaign_id}_{sid}",
+                )
+                segment_offers[sid] = chosen
+                rows = live[live["SEGMENT_ID"] == sid]
+                st.caption(_metrics_line(_sums(rows)) if not rows.empty else "No calculated figures yet for this segment.")
 
         with st.container(horizontal=True, vertical_alignment="bottom"):
-            reason = ui.reason_input(f"pd_reason_{campaign_id}_{segment_id}", disabled=locked)
-            if st.button("Save", type="primary", icon=":material/save:", disabled=locked, key=f"pd_save_{campaign_id}_{segment_id}"):
+            reason = ui.reason_input(f"pd_reason_{campaign_id}", disabled=locked)
+            if st.button("Save", type="primary", icon=":material/save:", disabled=locked, key=f"pd_save_{campaign_id}"):
                 if ui.require_reason(reason):
-                    ui.run_action(
-                        SCOPE,
-                        lambda: repository.save_population_allocation(
-                            session, campaign_id, {segment_id: chosen}, {segment_id: label}, reason.strip()),
-                        on_success=lambda _: st.session_state.pop(reset_key, None),
-                    )
+                    labels = {sid: label for sid in segment_ids}
+                    ui.run_action(SCOPE, lambda: repository.save_population_allocation(
+                        session, campaign_id, segment_offers, labels, reason.strip()))
             if st.button("Reset to Previous Allocation", icon=":material/history:", disabled=locked,
-                          key=f"pd_reset_btn_{campaign_id}_{segment_id}"):
-                prior = repository.previous_allocation(session, campaign_id).get(segment_id)
-                if not prior:
-                    st.warning("No previous campaign allocation for this segment.")
-                else:
-                    st.session_state[reset_key] = prior
-                    st.session_state[f"{reset_key}_nonce"] = reset_nonce + 1
-                    st.rerun()
-        if previous is not None:
-            st.info("Offers above show the previous campaign's allocation for this segment. Save to keep it.")
+                          key=f"pd_reset_btn_{campaign_id}"):
+                prior = repository.previous_allocation(session, campaign_id)
+                missing = [sid for sid in segment_ids if sid not in prior]
+                if missing:
+                    st.warning(f"No previous allocation for {len(missing)} of the selected segment(s) -- "
+                               "unaffected segments were left as-is above.")
+                for sid in segment_ids:
+                    if sid in prior:
+                        st.session_state[f"pd_offers_{campaign_id}_{sid}"] = prior[sid]
+                st.rerun()
 
+    st.divider()
     seg_rows = live[live["SEGMENT_ID"].notna()]
     st.markdown(f"### Grand Total — {_metrics_line(_sums(seg_rows))}")
-    unassigned = offers[offers["SEGMENT_ID"].isna()]
+    st.caption("An offer shared across segments counts in each of them, so this can exceed the total distinct offers mailed.")
+    unassigned = offers[~offers["CAMPAIGN_OFFER_ID"].isin(allocations["CAMPAIGN_OFFER_ID"])]
     if not unassigned.empty:
         st.caption(f"{len(unassigned)} offer(s) across the campaign are not assigned to any segment.")
 

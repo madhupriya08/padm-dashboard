@@ -521,18 +521,33 @@ def campaign_segments(session, campaign_id):
 
 
 def campaign_offers(session, campaign_id):
-    """Every current offer with its current allocation (if any)."""
+    """Every current offer for this campaign -- one row per offer, no segment join. An offer can
+    belong to any number of segments (many-to-many, confirmed 2026-11-19 -- its full Quantity/
+    Boards/$ count independently in EACH segment's totals, by design); use
+    offer_segment_allocations() for the offer<->segment links."""
     return df(
         session,
         f"""
         SELECT O.CAMPAIGN_OFFER_ID, O.OFFER_RESERVATION_CODE, O.OFFER_DESCRIPTION, O.OFFER_SEGMENT_NAME,
-               O.CREDIT_BUREAU_MODEL, O.CREDIT_BUREAU_SCORE, O.CRS_SCORE, O.PROSPECT_TYPE,
-               A.OFFER_SEGMENT_ALLOCATION_ID, A.SEGMENT_ID, A.POPULATION_DESCRIPTION, A.ROW_VERSION AS ALLOCATION_ROW_VERSION
+               O.CREDIT_BUREAU_MODEL, O.CREDIT_BUREAU_SCORE, O.CRS_SCORE, O.PROSPECT_TYPE
         FROM {SCHEMA}.VW_PADM_CAMPAIGN_OFFER_CURRENT AS O
-        LEFT JOIN {SCHEMA}.DM_PADM_OFFER_SEGMENT_ALLOCATION AS A
-            ON O.CAMPAIGN_OFFER_ID = A.CAMPAIGN_OFFER_ID AND A.IS_CURRENT = TRUE
         WHERE O.CAMPAIGN_ID = %(c)s
         ORDER BY O.OFFER_RESERVATION_CODE
+        """,
+        {"c": campaign_id},
+    )
+
+
+def offer_segment_allocations(session, campaign_id):
+    """Current offer<->segment links for this campaign (many-to-many: an offer may have several
+    rows, one per segment it belongs to)."""
+    return df(
+        session,
+        f"""
+        SELECT A.OFFER_SEGMENT_ALLOCATION_ID, A.CAMPAIGN_OFFER_ID, A.SEGMENT_ID,
+               A.POPULATION_DESCRIPTION, A.ROW_VERSION AS ALLOCATION_ROW_VERSION
+        FROM {SCHEMA}.DM_PADM_OFFER_SEGMENT_ALLOCATION AS A
+        WHERE A.CAMPAIGN_ID = %(c)s AND A.IS_CURRENT = TRUE
         """,
         {"c": campaign_id},
     )
@@ -567,6 +582,9 @@ def _working_version(session, campaign_id):
 
 
 def _insert_allocations(session, campaign_id, segment_id, offer_ids, reason, method, label=None):
+    """An offer may belong to any number of segments (many-to-many, 2026-11-19) -- this only
+    guards against a duplicate *(offer, segment)* row, not against the offer having other current
+    allocations to different segments."""
     if not offer_ids:
         return 0
     rows = exec_sql(
@@ -580,14 +598,14 @@ def _insert_allocations(session, campaign_id, segment_id, offer_ids, reason, met
         FROM (VALUES {{_values(len(offer_ids), 1)}}) AS V(OFFER_ID)
         JOIN {SCHEMA}.DM_PADM_CAMPAIGN_1 C ON C.CAMPAIGN_ID = ?
         WHERE NOT EXISTS (SELECT 1 FROM {SCHEMA}.DM_PADM_OFFER_SEGMENT_ALLOCATION A
-                           WHERE A.CAMPAIGN_OFFER_ID = V.OFFER_ID AND A.IS_CURRENT = TRUE)
+                           WHERE A.CAMPAIGN_OFFER_ID = V.OFFER_ID AND A.SEGMENT_ID = ? AND A.IS_CURRENT = TRUE)
         """,
-        [segment_id, label, method, reason, *[str(o) for o in offer_ids], campaign_id],
+        [segment_id, label, method, reason, *[str(o) for o in offer_ids], campaign_id, segment_id],
     )
     inserted = rows_affected(rows, "inserted")
     if inserted != len(offer_ids):
-        raise ProcedureError(f"{len(offer_ids) - inserted} offer(s) were already allocated by another user. "
-                              "Nothing was saved -- reload.")
+        raise ProcedureError(f"{len(offer_ids) - inserted} offer(s) are already on this segment and were skipped. "
+                              "Reload to see current state.")
     for offer_id in offer_ids:
         _change_event(session, campaign_id, "OFFER_SEGMENT_ALLOCATION", offer_id, "ALLOCATED",
                       None, {"SEGMENT_ID": segment_id, "POPULATION_DESCRIPTION": label}, reason)
@@ -707,10 +725,12 @@ def edit_segment(session, campaign_id, segment_id, expected_row_version, changes
 
 
 def set_segment_offers(session, campaign_id, segment_id, offer_ids, reason):
-    """Replace the segment's current offer set (new allocation versions; old ones retired)."""
+    """Replace this segment's current offer set (new allocation versions; old ones retired). Only
+    touches this segment's own links -- an offer kept here that's also on another segment is
+    untouched there (many-to-many)."""
     _assert_editable(session, campaign_id)
-    offers = campaign_offers(session, campaign_id)
-    current = offers[offers["SEGMENT_ID"] == segment_id]
+    allocations = offer_segment_allocations(session, campaign_id)
+    current = allocations[allocations["SEGMENT_ID"] == segment_id]
     wanted = set(map(str, offer_ids))
     retire = current[~current["CAMPAIGN_OFFER_ID"].astype(str).isin(wanted)]["OFFER_SEGMENT_ALLOCATION_ID"].tolist()
     add = sorted(wanted - set(current["CAMPAIGN_OFFER_ID"].astype(str)))
@@ -722,8 +742,8 @@ def set_segment_offers(session, campaign_id, segment_id, offer_ids, reason):
 
 def remove_segment_from_campaign(session, campaign_id, segment_id, reason):
     _assert_editable(session, campaign_id)
-    offers = campaign_offers(session, campaign_id)
-    allocation_ids = offers[offers["SEGMENT_ID"] == segment_id]["OFFER_SEGMENT_ALLOCATION_ID"].tolist()
+    allocations = offer_segment_allocations(session, campaign_id)
+    allocation_ids = allocations[allocations["SEGMENT_ID"] == segment_id]["OFFER_SEGMENT_ALLOCATION_ID"].tolist()
     with transaction(session):
         _retire_allocations(session, campaign_id, allocation_ids, reason)
         rows = exec_sql(
@@ -771,18 +791,17 @@ def previous_allocation(session, campaign_id):
 
 def save_population_allocation(session, campaign_id, segment_offers, segment_labels, reason):
     """segment_offers: {segment_id: [offer ids]}; segment_labels: {segment_id: label}.
-    Any segment whose offers or label changed gets new allocation versions (old ones retired)."""
+    Any segment whose offers or label changed gets new allocation versions (old ones retired).
+    An offer may appear under more than one segment_id -- many-to-many is intentional (2026-11-19):
+    its full Quantity/Boards/$ then count independently in each of those segments' totals."""
     _assert_editable(session, campaign_id)
-    offers = campaign_offers(session, campaign_id)
-    all_wanted = [o for ids in segment_offers.values() for o in ids]
-    if len(all_wanted) != len(set(all_wanted)):
-        raise ProcedureError("An offer can only be assigned to one segment.")
+    allocations = offer_segment_allocations(session, campaign_id)
     changed = 0
     with transaction(session):
         # Retire first (offers may move between segments), then insert.
         plans = []
         for segment_id, wanted in segment_offers.items():
-            current = offers[offers["SEGMENT_ID"] == segment_id]
+            current = allocations[allocations["SEGMENT_ID"] == segment_id]
             label = (segment_labels.get(segment_id) or "").strip() or None
             current_label = current["POPULATION_DESCRIPTION"].dropna().iloc[0] if current["POPULATION_DESCRIPTION"].notna().any() else None
             same_offers = set(map(str, wanted)) == set(current["CAMPAIGN_OFFER_ID"].astype(str))
