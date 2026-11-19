@@ -155,7 +155,8 @@ GRIDS = [
 GRID_ROWS = [
     ["mku", "post_ems", "selected"],
     ["base_nrr", "eff_nrr", "selected_nrr"],
-    ["hist_unwind", "eff_unwind", "booked_pre", "booked_pre_universe"],
+    ["hist_unwind", "booked_pre_universe", "booked_pre"],
+    ["eff_unwind"],
     ["pre_cpa_universe", "pre_cpa"],
     ["post_cpa_universe", "post_cpa"],
     ["marketing_universe", "marketing"],
