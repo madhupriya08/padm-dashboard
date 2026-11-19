@@ -1,0 +1,562 @@
+<title>PADM Dashboard Reference</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* layout: sticky left TOC + scrolling article; navy/slate "sign-off ledger" palette carried over from the dashboard's own header */
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef1f5; --border: #dde2e9;
+  --fg: #16202e; --fg-dim: #5b6779; --fg-faint: #8a93a3;
+  --accent: #0e5a7a; --accent-2: #103a63; --accent-bg: #e7f1f5;
+  --ok: #1b7a43; --ok-bg: #e7f6ec; --warn: #9a6400; --warn-bg: #fdf3df; --bad: #b3261e; --bad-bg: #fbe9e7;
+  --code-bg: #0b1f3a; --code-fg: #cfe3f2;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1016; --surface: #121923; --surface-2: #171f2b; --border: #26303f;
+    --fg: #e7ecf3; --fg-dim: #a7b1c0; --fg-faint: #768293;
+    --accent: #5fb8d8; --accent-2: #8fb6e0; --accent-bg: #10283a; --ok: #6fd79a; --ok-bg: #0f2a1c;
+    --warn: #e5b85c; --warn-bg: #2d2309; --bad: #ef8a82; --bad-bg: #2c1412; --code-bg: #060c15; --code-fg: #bcd6ea;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1016; --surface: #121923; --surface-2: #171f2b; --border: #26303f;
+  --fg: #e7ecf3; --fg-dim: #a7b1c0; --fg-faint: #768293;
+  --accent: #5fb8d8; --accent-2: #8fb6e0; --accent-bg: #10283a; --ok: #6fd79a; --ok-bg: #0f2a1c;
+  --warn: #e5b85c; --warn-bg: #2d2309; --bad: #ef8a82; --bad-bg: #2c1412; --code-bg: #060c15; --code-fg: #bcd6ea;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: "Inter", system-ui, sans-serif; margin: 0; line-height: 1.55; }
+h1, h2, h3, h4 { font-family: "Space Grotesk", "Inter", sans-serif; font-weight: 600; color: var(--fg); text-wrap: balance; letter-spacing: -0.01em; }
+code, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+a { color: var(--accent); }
+.shell { max-width: 1180px; margin: 0 auto; padding-block: 28px 80px; display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 36px; }
+@media (max-width: 860px) { .shell { grid-template-columns: 1fr; } .toc { display: none; } }
+
+.toc { position: sticky; top: 20px; align-self: start; max-height: calc(100vh - 40px); overflow-y: auto; padding-right: 6px; }
+.toc .brand { font-family: "Space Grotesk"; font-weight: 700; font-size: 1.05rem; margin-bottom: 2px; }
+.toc .tagline { color: var(--fg-faint); font-size: 0.78rem; margin-bottom: 18px; }
+.toc nav { display: flex; flex-direction: column; gap: 2px; }
+.toc a { color: var(--fg-dim); text-decoration: none; font-size: 0.83rem; padding: 5px 8px; border-radius: 6px; border-left: 2px solid transparent; }
+.toc a:hover { background: var(--surface-2); color: var(--fg); }
+.toc .grp { color: var(--fg-faint); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; margin: 14px 0 4px 8px; }
+
+main { min-width: 0; }
+header.hero { background: linear-gradient(120deg, var(--code-bg) 0%, var(--accent-2) 55%, var(--accent) 100%); color: #eef4f8;
+  border-radius: 16px; padding: 30px 32px; margin-bottom: 26px; box-shadow: 0 10px 30px rgba(10,30,60,0.18); }
+header.hero .eyebrow { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.12em; opacity: 0.75; margin-bottom: 8px; }
+header.hero h1 { color: #fff; font-size: clamp(1.5rem, 3.4vw, 2.1rem); margin: 0 0 8px; }
+header.hero p { max-width: 62ch; opacity: 0.88; margin: 0 0 18px; font-size: 0.97rem; }
+.stat-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.stat { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; padding: 9px 14px; min-width: 110px; }
+.stat b { display: block; font-family: "Space Grotesk"; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 0.72rem; opacity: 0.8; }
+
+section { margin-bottom: 44px; scroll-margin-top: 18px; }
+section h2 { font-size: 1.35rem; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 16px; }
+section h3 { font-size: 1.05rem; margin: 22px 0 10px; }
+p { color: var(--fg); max-width: 78ch; }
+.lede { color: var(--fg-dim); max-width: 72ch; }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+@media (max-width: 700px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+
+.pill { display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 600; padding: 3px 9px; border-radius: 999px; }
+.pill.ok { background: var(--ok-bg); color: var(--ok); }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.bad { background: var(--bad-bg); color: var(--bad); }
+.pill.neutral { background: var(--surface-2); color: var(--fg-dim); }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--fg-faint); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+.table-wrap table { min-width: 560px; }
+
+.changelog { border-left: 2px solid var(--border); padding-left: 18px; margin-top: 10px; }
+.change { position: relative; padding-bottom: 26px; }
+.change::before { content: ""; position: absolute; left: -23px; top: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); }
+.change h4 { margin: 0 0 4px; font-size: 0.98rem; }
+.change .ask { font-size: 0.82rem; color: var(--fg-faint); font-style: italic; margin-bottom: 6px; }
+.change .files { margin-top: 6px; font-size: 0.78rem; color: var(--fg-faint); }
+.change .files code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+
+.qa { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; }
+.qa .q { font-weight: 600; font-family: "Space Grotesk"; font-size: 0.95rem; display: flex; gap: 8px; }
+.qa .q .mark { color: var(--accent); flex-shrink: 0; }
+.qa .a { margin-top: 8px; color: var(--fg-dim); font-size: 0.89rem; }
+.qa .a code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; color: var(--fg); }
+
+figure { margin: 18px 0; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+figure svg { width: 100%; height: auto; display: block; }
+figcaption { font-size: 0.8rem; color: var(--fg-faint); margin-top: 10px; text-align: center; }
+svg text { fill: currentColor; color: var(--fg-dim); }
+.dim { color: var(--fg-faint); font-size: 0.82rem; }
+ul.tight { margin: 6px 0; padding-left: 20px; }
+ul.tight li { margin-bottom: 4px; }
+code.block { display: block; background: var(--code-bg); color: var(--code-fg); padding: 10px 12px; border-radius: 8px; font-size: 0.78rem; overflow-x: auto; margin-top: 8px; }
+.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.tag { font-size: 0.7rem; background: var(--surface-2); color: var(--fg-dim); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); }
+</style>
+
+<div class="shell">
+  <aside class="toc">
+    <div class="brand">PADM Reference</div>
+    <div class="tagline">Built 2026-11-19 · live session doc</div>
+    <nav>
+      <a href="#overview">Overview</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#workflow">Tab workflow</a>
+      <div class="grp">What changed</div>
+      <a href="#chg-cpp">CPP relocation</a>
+      <a href="#chg-sigpage">Signature Page</a>
+      <a href="#chg-createseg">Create Segment</a>
+      <a href="#chg-m2m">Many-to-many offers</a>
+      <a href="#chg-assump">Campaign Assumptions</a>
+      <a href="#chg-popdesc">Population Description</a>
+      <a href="#chg-segview">Segment Viewer</a>
+      <a href="#chg-app">streamlit_app.py</a>
+      <div class="grp">Demo prep</div>
+      <a href="#qa">Q&amp;A</a>
+      <a href="#open-items">Still open</a>
+      <a href="#resources">Resources</a>
+    </nav>
+  </aside>
+
+  <main>
+    <header class="hero">
+      <div class="eyebrow">Credit One Bank · Risk / Acquisitions</div>
+      <h1>PADM Sign-Off Dashboard</h1>
+      <p>A Streamlit-in-Snowflake app that replaces the manual Excel sign-off process for monthly direct-mail
+        credit-card campaigns — 7 tabs, one campaign at a time, every write versioned and audited.</p>
+      <div class="stat-row">
+        <div class="stat"><b>7</b><span>workflow tabs</span></div>
+        <div class="stat"><b>26 / 27</b><span>real SQL files captured</span></div>
+        <div class="stat"><b>12</b><span>files changed this session</span></div>
+        <div class="stat"><b>1</b><span>crash bug found &amp; fixed</span></div>
+      </div>
+    </header>
+
+    <section id="overview">
+      <h2>Overview</h2>
+      <p class="lede">The real, running code is the <code>padm/</code> package (<code>padm/tabs/*.py</code>,
+        <code>padm/repository.py</code>, <code>padm/ui.py</code>, <code>padm/formulas.py</code>). A separate
+        <code>app/</code> tree exists in the project but is <strong>dead code</strong> — not imported by
+        <code>streamlit_app.py</code> — kept only for historical reference. Every change on this page is to
+        <code>padm/</code>.</p>
+      <div class="grid3">
+        <div class="card">
+          <div class="pill ok">Two-schema design</div>
+          <p style="margin-top:8px; font-size:0.87rem;">Working Schema (DB_RISK.RISK_SBX) is where every tab reads
+            and writes. An Archive Schema concept exists for finalized, read-only history per the sign-off
+            proposal.</p>
+        </div>
+        <div class="card">
+          <div class="pill ok">Versioned, never overwritten</div>
+          <p style="margin-top:8px; font-size:0.87rem;">Assumptions, selections, allocations and segments are all
+            append-only version tables — a save never deletes the prior row, it retires it.</p>
+        </div>
+        <div class="card">
+          <div class="pill ok">One audit trail</div>
+          <p style="margin-top:8px; font-size:0.87rem;"><code>DM_PADM_CHANGE_EVENT</code> is written to by every
+            write-path across every tab — a single place to answer "who changed what, and why."</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h2>Where the data actually comes from</h2>
+      <p class="lede">Two source systems feed PADM's own tables, which the dashboard reads — the dashboard itself
+        never queries the source systems directly except through governed views.</p>
+      <figure role="img" aria-label="Data flows from CSTONE_BIZ reference tables and raw mailfile tables, through PADM views that classify and filter, into PADM's own DM_PADM tables, which the dashboard tabs read and write.">
+        <svg viewBox="0 0 980 300" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <!-- column 1: source systems -->
+          <rect x="20" y="30" width="200" height="70" rx="10" fill="none" stroke="currentColor" opacity="0.5"/>
+          <text x="120" y="58" text-anchor="middle" font-size="12" font-weight="600">CSTONE_BIZ.REFERENCE</text>
+          <text x="120" y="76" text-anchor="middle" font-size="10" opacity="0.7">T_ACM_CAMPAIGN_OFFERS, T_ACM_PROGRAMS</text>
+
+          <rect x="20" y="130" width="200" height="70" rx="10" fill="none" stroke="currentColor" opacity="0.5"/>
+          <text x="120" y="158" text-anchor="middle" font-size="12" font-weight="600">Mailfile tables</text>
+          <text x="120" y="176" text-anchor="middle" font-size="10" opacity="0.7">T_EXPERIAN_MAILFILE, T_TRANSUNION_MAILFILE</text>
+
+          <!-- column 2: PADM governed views -->
+          <rect x="300" y="15" width="220" height="60" rx="10" fill="var(--accent-bg)" stroke="var(--accent)"/>
+          <text x="410" y="40" text-anchor="middle" font-size="11.5" font-weight="600">VW_PADM_ACM_OFFER_SOURCE</text>
+          <text x="410" y="57" text-anchor="middle" font-size="9.5" opacity="0.7">eligibility filters applied</text>
+
+          <rect x="300" y="105" width="220" height="60" rx="10" fill="var(--accent-bg)" stroke="var(--accent)"/>
+          <text x="410" y="130" text-anchor="middle" font-size="11.5" font-weight="600">VW_PADM_ACM_CAMPAIGN_CANDIDATE</text>
+          <text x="410" y="147" text-anchor="middle" font-size="9.5" opacity="0.7">one row per month + type</text>
+
+          <rect x="300" y="195" width="220" height="60" rx="10" fill="var(--accent-bg)" stroke="var(--accent)"/>
+          <text x="410" y="220" text-anchor="middle" font-size="11.5" font-weight="600">VW_PADM_SEGMENT_SOURCE_CANDIDATE</text>
+          <text x="410" y="237" text-anchor="middle" font-size="9.5" opacity="0.7">rebuilt this session — real bands</text>
+
+          <!-- column 3: PADM tables -->
+          <rect x="600" y="30" width="190" height="70" rx="10" fill="none" stroke="currentColor"/>
+          <text x="695" y="55" text-anchor="middle" font-size="12" font-weight="600">DM_PADM_CAMPAIGN_1</text>
+          <text x="695" y="72" text-anchor="middle" font-size="9.5" opacity="0.7">+ CAMPAIGN_OFFER, OFFER_PROFILE</text>
+
+          <rect x="600" y="130" width="190" height="70" rx="10" fill="none" stroke="currentColor"/>
+          <text x="695" y="155" text-anchor="middle" font-size="12" font-weight="600">DM_PADM_SEGMENT_1</text>
+          <text x="695" y="172" text-anchor="middle" font-size="9.5" opacity="0.7">+ CAMPAIGN_SEGMENT_1, OFFER_SEGMENT_ALLOCATION</text>
+
+          <rect x="600" y="220" width="190" height="60" rx="10" fill="none" stroke="currentColor"/>
+          <text x="695" y="245" text-anchor="middle" font-size="12" font-weight="600">Assumptions, Selections, CDE</text>
+          <text x="695" y="262" text-anchor="middle" font-size="9.5" opacity="0.7">all versioned, never overwritten</text>
+
+          <!-- column 4: dashboard -->
+          <rect x="840" y="110" width="120" height="80" rx="10" fill="var(--code-bg)" stroke="var(--accent)"/>
+          <text x="900" y="140" text-anchor="middle" font-size="12" font-weight="600" fill="#eef4f8">7 tabs</text>
+          <text x="900" y="158" text-anchor="middle" font-size="9.5" fill="#cfe3f2">read + write</text>
+          <text x="900" y="174" text-anchor="middle" font-size="9.5" fill="#cfe3f2">this column only</text>
+
+          <!-- arrows -->
+          <line x1="220" y1="65" x2="300" y2="45" stroke="currentColor" marker-end="url(#arr)"/>
+          <line x1="220" y1="90" x2="300" y2="130" stroke="currentColor" marker-end="url(#arr)"/>
+          <line x1="220" y1="165" x2="300" y2="225" stroke="currentColor" marker-end="url(#arr)"/>
+          <line x1="520" y1="45" x2="600" y2="60" stroke="currentColor" marker-end="url(#arr)"/>
+          <line x1="520" y1="135" x2="600" y2="60" stroke="currentColor" marker-end="url(#arr)"/>
+          <line x1="520" y1="135" x2="600" y2="165" stroke="currentColor" marker-end="url(#arr)"/>
+          <line x1="520" y1="225" x2="600" y2="165" stroke="currentColor" marker-end="url(#arr)"/>
+          <line x1="790" y1="65" x2="840" y2="130" stroke="currentColor" marker-end="url(#arr)"/>
+          <line x1="790" y1="165" x2="840" y2="155" stroke="currentColor" marker-end="url(#arr)"/>
+          <line x1="790" y1="250" x2="840" y2="175" stroke="currentColor" marker-end="url(#arr)"/>
+          <text x="900" y="40" text-anchor="middle" font-size="10" opacity="0.6">reads + writes</text>
+          <line x1="900" y1="48" x2="900" y2="108" stroke="currentColor" stroke-dasharray="3,3" marker-end="url(#arr)"/>
+        </svg>
+        <figcaption>Source systems (left) feed PADM's governed views (center-left), which populate PADM's own
+          operational tables (center-right) — the only things the 7 tabs ever read or write (right).</figcaption>
+      </figure>
+    </section>
+
+    <section id="workflow">
+      <h2>Tab workflow &amp; campaign status</h2>
+      <figure role="img" aria-label="Seven tabs in order: Campaign Creation, Signature Page, Create Segment, Campaign Assumptions, Population Description, Segment Viewer, Signature Page 2. Campaign status flows NEW to DRAFT to IN_PROGRESS to PENDING_APPROVAL to APPROVED, with REJECTED looping back to DRAFT. APPROVED has no path back.">
+        <svg viewBox="0 0 980 170" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+            </marker>
+          </defs>
+          <text x="10" y="18" font-size="10" opacity="0.6">TAB ORDER</text>
+          <g font-size="10.5">
+            <!-- 7 tab boxes -->
+            <g id="tabs"></g>
+          </g>
+          <!-- manual tab boxes for clean alignment -->
+          <rect x="10" y="26" width="128" height="34" rx="8" fill="none" stroke="currentColor"/>
+          <text x="74" y="47" text-anchor="middle" font-size="10.5">1. Campaign Creation</text>
+          <rect x="150" y="26" width="118" height="34" rx="8" fill="none" stroke="currentColor"/>
+          <text x="209" y="47" text-anchor="middle" font-size="10.5">2. Signature Page</text>
+          <rect x="280" y="26" width="118" height="34" rx="8" fill="none" stroke="currentColor"/>
+          <text x="339" y="47" text-anchor="middle" font-size="10.5">3. Create Segment</text>
+          <rect x="410" y="26" width="128" height="34" rx="8" fill="none" stroke="currentColor"/>
+          <text x="474" y="47" text-anchor="middle" font-size="10.5">4. Campaign Assump.</text>
+          <rect x="550" y="26" width="138" height="34" rx="8" fill="none" stroke="currentColor"/>
+          <text x="619" y="47" text-anchor="middle" font-size="10.5">5. Population Desc.</text>
+          <rect x="700" y="26" width="118" height="34" rx="8" fill="none" stroke="currentColor"/>
+          <text x="759" y="47" text-anchor="middle" font-size="10.5">6. Segment Viewer</text>
+          <rect x="830" y="26" width="130" height="34" rx="8" fill="var(--accent-bg)" stroke="var(--accent)"/>
+          <text x="895" y="47" text-anchor="middle" font-size="10.5" font-weight="600">7. Signature Page 2</text>
+          <line x1="138" y1="43" x2="150" y2="43" stroke="currentColor" marker-end="url(#arr2)"/>
+          <line x1="268" y1="43" x2="280" y2="43" stroke="currentColor" marker-end="url(#arr2)"/>
+          <line x1="398" y1="43" x2="410" y2="43" stroke="currentColor" marker-end="url(#arr2)"/>
+          <line x1="538" y1="43" x2="550" y2="43" stroke="currentColor" marker-end="url(#arr2)"/>
+          <line x1="688" y1="43" x2="700" y2="43" stroke="currentColor" marker-end="url(#arr2)"/>
+          <line x1="818" y1="43" x2="830" y2="43" stroke="currentColor" marker-end="url(#arr2)"/>
+
+          <text x="10" y="92" font-size="10" opacity="0.6">CAMPAIGN STATUS</text>
+          <g font-size="10.5">
+            <rect x="10" y="100" width="70" height="32" rx="16" fill="none" stroke="currentColor"/>
+            <text x="45" y="120" text-anchor="middle" font-size="10">NEW</text>
+            <rect x="110" y="100" width="70" height="32" rx="16" fill="none" stroke="currentColor"/>
+            <text x="145" y="120" text-anchor="middle" font-size="10">DRAFT</text>
+            <rect x="210" y="100" width="110" height="32" rx="16" fill="none" stroke="currentColor"/>
+            <text x="265" y="120" text-anchor="middle" font-size="10">IN_PROGRESS</text>
+            <rect x="350" y="100" width="150" height="32" rx="16" fill="none" stroke="currentColor"/>
+            <text x="425" y="120" text-anchor="middle" font-size="10">PENDING_APPROVAL</text>
+            <rect x="530" y="100" width="110" height="32" rx="16" fill="var(--ok-bg)" stroke="var(--ok)"/>
+            <text x="585" y="120" text-anchor="middle" font-size="10" font-weight="600">APPROVED</text>
+            <rect x="680" y="100" width="110" height="32" rx="16" fill="var(--bad-bg)" stroke="var(--bad)"/>
+            <text x="735" y="120" text-anchor="middle" font-size="10" font-weight="600">REJECTED</text>
+          </g>
+          <line x1="80" y1="116" x2="110" y2="116" stroke="currentColor" marker-end="url(#arr2)"/>
+          <line x1="180" y1="116" x2="210" y2="116" stroke="currentColor" marker-end="url(#arr2)"/>
+          <line x1="320" y1="116" x2="350" y2="116" stroke="currentColor" marker-end="url(#arr2)"/>
+          <line x1="500" y1="116" x2="530" y2="116" stroke="currentColor" marker-end="url(#arr2)"/>
+          <line x1="500" y1="128" x2="680" y2="128" stroke="currentColor" marker-end="url(#arr2)"/>
+          <path d="M 735 100 Q 500 60 145 100" fill="none" stroke="currentColor" stroke-dasharray="3,3" marker-end="url(#arr2)"/>
+          <text x="440" y="68" text-anchor="middle" font-size="9.5" opacity="0.7">reject → back to DRAFT</text>
+          <text x="590" y="150" text-anchor="middle" font-size="9.5" opacity="0.7">terminal — no procedure path back</text>
+        </svg>
+        <figcaption>Tab order mirrors the physical sign-off sheet's own structure. Approval is a deliberate dead
+          end: only Reject has a return path, confirmed from the real procedure's own transition rules.</figcaption>
+      </figure>
+    </section>
+
+    <section id="changes">
+      <h2>What changed this session</h2>
+      <p class="lede">Grouped by what you asked for, in the order it happened. Every item below is committed and
+        pushed to <code>main</code> on GitHub — see <a href="#resources">Resources</a>.</p>
+      <div class="changelog">
+
+        <div class="change" id="chg-cpp">
+          <span class="pill ok">Shipped</span>
+          <h4>CPP moved off Signature Page, onto Campaign Assumptions + Segment Viewer</h4>
+          <div class="ask">"I want to remove cpp from signature page... ideally it should be in both campaign
+            assumptions and segment viewer page"</div>
+          <p>Root cause: CPP already had a segment-override column and was marked <code>ENTERED_ON='BOTH'</code>,
+            but its <code>ASSUMPTION_LEVEL</code> was <code>'CAMPAIGN'</code> instead of
+            <code>'CAMPAIGN_SEGMENT'</code> — the one value stopping the generic, definitions-driven UI from
+            showing it as a segment override. Fixed the data, removed the redundant manual-override section (and
+            the 3 Offers/Quantity/Segmented-offers metric tiles) from Signature Page.</p>
+          <div class="files">Files: <code>sql/01_schema.sql</code>, live <code>UPDATE</code> on
+            <code>DM_PADM_ASSUMPTION_DEFINITION</code>, <code>padm/tabs/signature_page.py</code></div>
+        </div>
+
+        <div class="change" id="chg-sigpage">
+          <span class="pill ok">Shipped</span>
+          <h4>Signature Page: one row per segment, not per offer</h4>
+          <div class="ask">"no need to show offer details in signature page"</div>
+          <p>Collapsed the page to one row per segment. Along the way, found and fixed a real pre-existing bug,
+            not just a cosmetic one: <code>VW_PADM_SIGNATURE_PAGE_LIVE</code>'s calculated columns are already
+            segment-level (its calculation join has no offer dimension), so a segment with 5 offers repeated the
+            same numbers 5 times — the old flat display's GRAND TOTAL was inflated by each segment's offer count.
+            Offer-level fields that genuinely vary between offers in a segment (Test Type, Promo, IVR) now show
+            as a distinct-value summary instead of silently picking one.</p>
+          <div class="files">Files: <code>padm/ui.py</code> (new <code>collapse_to_segment()</code>),
+            <code>padm/tabs/signature_page.py</code></div>
+        </div>
+
+        <div class="change" id="chg-createseg">
+          <span class="pill ok">Shipped</span>
+          <h4>Create Segment: trimmed to spec, bug fixes, real historical segments</h4>
+          <div class="ask">Multiple asks: mandatory-field asterisks, TransUnion missing from the bureau dropdown,
+            LIFT missing from score type, "only the fields mentioned under segment creation in sign-off proposal
+            doc is needed", and "all these campaigns until Nov are already completed so there should be segments
+            available."</div>
+          <ul class="tight">
+            <li>Asterisks added; <code>source_names()</code> fixed — was silently dropping a bureau with zero
+              segments created yet.</li>
+            <li>Optional fields trimmed to exactly the sign-off proposal's Segment Creation list; Free-form field
+              removed (belongs to a different section of that document).</li>
+            <li>Bureau Score Type now cascades on the selected Source; LIFT shown for both bureaus per explicit
+              choice (real data dictionary confirms <code>LIFT_SCORE</code> exists only in
+              <code>T_EXPERIAN_MAILFILE</code> — flagged, not hidden).</li>
+            <li><strong>Root cause of the "no segments" question</strong>: campaigns already had a real
+              discover-from-source mechanism (<code>discover_campaign()</code>); segments never did.
+              Added <code>discover_segments()</code> + a "Sync governed segments from source" button, and
+              rebuilt <code>VW_PADM_SEGMENT_SOURCE_CANDIDATE</code> after its source table
+              (<code>DM_PADM_TR_MAILFILE_NORMALIZED</code>) turned out not to be part of this project — now reads
+              directly from <code>T_EXPERIAN_MAILFILE</code> / <code>T_TRANSUNION_MAILFILE</code>, banding the raw
+              Vantage/LIFT scores against <code>DM_PADM_SCORE_RANGE_RULE_1</code>.</li>
+          </ul>
+          <div class="files">Files: <code>padm/tabs/create_segment.py</code>, <code>padm/repository.py</code>,
+            <code>sql/segment_source_candidate_rebuild.sql</code>, <code>sql/manual_fixes_and_seeds.sql</code></div>
+        </div>
+
+        <div class="change" id="chg-m2m">
+          <span class="pill ok">Shipped</span>
+          <h4>One offer can now belong to more than one segment</h4>
+          <div class="ask">"it is many to many... let's not fix the score range for this but ... population
+            description is given to a set of segments not just one"</div>
+          <p>Explicit decision confirmed: a shared offer's full numbers count in <em>each</em> segment it belongs
+            to (Grand Total can exceed distinct offers mailed — by design, not a bug). The old hard block
+            ("An offer can only be assigned to one segment") is gone; the uniqueness guard moved from
+            per-offer to per-(offer, segment) pair.</p>
+          <div class="files">Files: <code>padm/repository.py</code>, <code>padm/tabs/create_segment.py</code>,
+            <code>padm/tabs/population_description.py</code></div>
+        </div>
+
+        <div class="change" id="chg-assump">
+          <span class="pill ok">Shipped</span>
+          <h4>Campaign Assumptions simplified to campaign-level only</h4>
+          <div class="ask">"cpp, unitcost, rate adjustment is needed as campaign level assumptions thats it for
+            this page... remove segment assumptions in this page"</div>
+          <p>Removed the Segment-level assumptions section — Segment Viewer is now the single place to edit
+            segment-level overrides. Flagged, not silently dropped: <code>NBR</code>'s segment override has
+            nowhere left to be edited (its definition row is marked <code>ENTERED_ON='ASSUMPTIONS'</code>, not
+            Segment Viewer) — open question if that's still needed.</p>
+          <div class="files">Files: <code>padm/tabs/campaign_assumptions.py</code></div>
+        </div>
+
+        <div class="change" id="chg-popdesc">
+          <span class="pill ok">Shipped</span>
+          <h4>Population Description rebuilt to segment-first</h4>
+          <div class="ask">"the current page looks overwhelming... many to many links between segment to offer
+            should be done here... select segment first and edit or save offers and give a population description
+            to set of segments"</div>
+          <p>Replaced the Annual-Fee/Score-Band grouped layout with: pick a <em>set</em> of segments, give them
+            one shared label, each still gets its own offer multiselect below. Label pre-fills a suggested
+            default (<code>Sub-Total &lt;source or MLA&gt; &lt;band&gt;</code>) built from the segment's own
+            fields — matches the real Signature Page export's naming pattern, not an exact copy (no governed
+            table exists for the "Core"/"Expansion" wording seen there).</p>
+          <div class="files">Files: <code>padm/tabs/population_description.py</code></div>
+        </div>
+
+        <div class="change" id="chg-segview">
+          <span class="pill ok">Shipped</span>
+          <h4>Segment Viewer: prepopulation, 3-color grid, Excel-aligned layout</h4>
+          <div class="ask">A long list, including "segment level assumptions should be prepopulated with campaign
+            latest assumptions", "previous campaign's selections should get populated... with non-zero values
+            highlighted in yellow", "I need the alignment of the grids same as shown in segment excel", and
+            "only highlighted non-zero values should be shown."</div>
+          <ul class="tight">
+            <li>CPP/Unit Cost now prefill from the campaign's current assumption when no segment override exists.</li>
+            <li>Selection grid highlighting extended from 1 color to 3: <span class="tag">blue = unsaved edit</span>
+              <span class="tag">green = currently saved</span> <span class="tag">yellow = prior campaign had a
+              value</span>.</li>
+            <li>Rebuilt the 22-grid calculated section into side-by-side rows matching the real
+              <code>Segment.xlsx</code> you sent — Universe-vs-Selected pairs that were already being calculated
+              but never displayed are now visible.</li>
+            <li>Every calculated grid now shows only non-zero values — zero/null cells render blank, matching the
+              Excel convention.</li>
+          </ul>
+          <div class="files">Files: <code>padm/tabs/segment_viewer.py</code>, <code>padm/formulas.py</code>,
+            <code>padm/ui.py</code></div>
+        </div>
+
+        <div class="change" id="chg-app">
+          <span class="pill bad">Bug fixed</span>
+          <h4>streamlit_app.py — found a real crash bug while polishing it</h4>
+          <div class="ask">"give the streamlit_app.py file in a creative and professional way without changing
+            the main functionalities"</div>
+          <p><code>main()</code> read campaign data as a dict with made-up keys (<code>campaign["name"]</code>,
+            <code>campaign["mail_date"]</code>) — the real function returns a DataFrame with different column
+            names, so this would have thrown a <code>KeyError</code> the moment a campaign was selected. It also
+            rendered a second header above the tabs while every tab already renders its own. Both fixed by
+            routing through the already-correct <code>ui.campaign_context()</code>; cosmetic polish (branding
+            bar, workflow pills, landing screen) is additive only.</p>
+          <div class="files">Files: <code>streamlit_app.py</code></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="qa">
+      <h2>Demo Q&amp;A prep</h2>
+      <p class="lede">The questions you asked, plus the ones most likely to come up alongside them.</p>
+
+      <div class="qa">
+        <div class="q"><span class="mark">Q</span>Did we fetch any data from Vivian's code, and from where
+          exactly?</div>
+        <div class="a">Not as a live data source — her NRR/Unwinds SQL scripts are legacy ETL reference, not
+          tables the app queries. What's confirmed: <code>VW_PADM_SEGMENT_SOURCE_CANDIDATE</code>'s
+          segment-naming logic (the MLA / PCO / PCL / PDCL / ABDN / REMAIL suffixes) matches her classification
+          scheme conceptually — but the actual score-band/prospect-type classification happens upstream, in
+          whatever already populates <code>T_EXPERIAN_MAILFILE</code> / <code>T_TRANSUNION_MAILFILE</code>'s
+          <code>PROSPECT_TYPE</code>/<code>PRESCREEN_VANTAGE_*</code> columns, not inline in her script. Her
+          Unwinds_optimized scripts are background for the Unwind Rate assumption only.</div>
+      </div>
+
+      <div class="qa">
+        <div class="q"><span class="mark">Q</span>Where did all the campaign and segment information come from?</div>
+        <div class="a">Campaigns: <code>discover_campaign()</code> merges <code>VW_PADM_ACM_CAMPAIGN_CANDIDATE</code>
+          (ACM offer data, eligibility-filtered) into <code>DM_PADM_CAMPAIGN_1</code> — this already existed.
+          Segments: historically only ever created by hand through the Create Segment form. This session added
+          the equivalent sync for segments — <code>discover_segments()</code>, sourced from
+          <code>VW_PADM_SEGMENT_SOURCE_CANDIDATE</code>, which reads the real Experian/TransUnion mailfile tables
+          directly.</div>
+      </div>
+
+      <div class="qa">
+        <div class="q"><span class="mark">Q</span>Are segment-level assumptions stored anywhere for completed
+          campaigns?</div>
+        <div class="a">Yes — <code>DM_PADM_SEGMENT_ASSUMPTION_VERSION</code> is fully versioned and append-only;
+          nothing is ever deleted. A completed campaign's segment assumptions stay queryable forever via
+          "Version history." Once a campaign reaches <code>APPROVED</code>, the whole app goes read-only
+          (<code>campaign["locked"]</code>), but the underlying data isn't purged — only editing is blocked.</div>
+      </div>
+
+      <div class="qa">
+        <div class="q"><span class="mark">Q</span>What happens once a campaign is approved — can it still be
+          changed?</div>
+        <div class="a">No, by design. The confirmed real status flow only allows <code>REJECTED → DRAFT</code> —
+          there's no procedure path from <code>APPROVED</code> back to editable. Every input across every tab
+          already disables itself automatically (<code>disabled=locked</code>), and the header shows a lock
+          banner. A "reopen an approved campaign as a new version" workflow doesn't exist today — it would be new
+          scope, not a toggle.</div>
+      </div>
+
+      <div class="qa">
+        <div class="q"><span class="mark">Q</span>Can the same offer really belong to two different segments?</div>
+        <div class="a">Yes, as of this session, by explicit decision. Its full Quantity/Boards/Marketing Expense
+          etc. count independently in each segment — so a campaign's Grand Total can be larger than the true
+          count of distinct offers mailed. That's expected, not a double-counting bug.</div>
+      </div>
+
+      <div class="qa">
+        <div class="q"><span class="mark">Q</span>Is LIFT a real option for both Experian and TransUnion?</div>
+        <div class="a">It shows in the dropdown for both, per an explicit UI decision. Technically, Credit One's
+          own data dictionary confirms <code>LIFT_SCORE</code> exists only in <code>T_EXPERIAN_MAILFILE</code> —
+          TransUnion has no real score-band data behind it yet, so creating a TransUnion + LIFT segment will
+          correctly show "no active score-range rules" until real data is added.</div>
+      </div>
+
+      <div class="qa">
+        <div class="q"><span class="mark">Q</span>Why do some Signature Page / Segment Viewer cells show blank
+          instead of 0?</div>
+        <div class="a">Intentional, matching the real <code>Segment.xlsx</code> convention — only non-zero values
+          are shown on calculated grids. The Selection % input grid is unchanged (it never did this).</div>
+      </div>
+
+      <div class="qa">
+        <div class="q"><span class="mark">Q</span>What's the difference between Working Version and Final
+          Version on Segment Viewer?</div>
+        <div class="a">Real, confirmed difference, not a redundant toggle — the sign-off proposal's own
+          Working-vs-Final table says so. Working Version = Selection % × Universe Post-EMS (your estimate).
+          Final Version swaps in actual mailed quantities from <code>DM_PADM_MAILFILE_CELL</code> (sourced from
+          the real Experian/TransUnion mail files) once they exist.</div>
+      </div>
+    </section>
+
+    <section id="open-items">
+      <h2>Still open</h2>
+      <div class="table-wrap">
+        <table>
+          <tr><th>Item</th><th>Status</th><th>Notes</th></tr>
+          <tr><td>3-month purge for <code>DM_PADM_SELECTION_WORKING</code></td><td><span class="pill warn">Deferred</span></td>
+            <td>Needs a scheduled Snowflake <code>TASK</code>. <code>DM_PADM_SELECTION_SET</code>/<code>_EVENT</code>
+              (the real audit trail) must never be touched by it.</td></tr>
+          <tr><td><code>validations.sql</code></td><td><span class="pill neutral">Skipped</span></td>
+            <td>Explicitly skipped at your request — the one file of ~27 real ones never captured.</td></tr>
+          <tr><td>Offer-to-segment auto-match from offer attributes</td><td><span class="pill neutral">Not pursued</span></td>
+            <td>Would need confirming what <code>CREDIT_BUREAU_MODEL</code>/<code>SCORE</code> mean on a real
+              offer row. Manual/SQL seeding used instead for the demo.</td></tr>
+          <tr><td>Reopen an approved campaign as a new version</td><td><span class="pill warn">Needs confirmation</span></td>
+            <td>No path exists in the real procedure today — flagged as new scope, not yet confirmed wanted.</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <section id="resources">
+      <h2>Resources</h2>
+      <div class="grid2">
+        <div class="card">
+          <h3 style="margin-top:0;">GitHub repository</h3>
+          <p style="font-size:0.88rem;">Every file, table definition, and this page's source are committed and
+            pushed to <code>main</code>.</p>
+          <p class="mono" style="font-size:0.85rem;"><a href="https://github.com/madhupriya08/padm-dashboard" target="_blank" rel="noopener">github.com/madhupriya08/padm-dashboard</a></p>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0;">Data lineage workbook</h3>
+          <p style="font-size:0.88rem;">Field-by-field source tracing for all 7 tabs — one sheet each, every
+            element mapped to its real table/view/procedure and join logic.</p>
+          <p class="mono" style="font-size:0.85rem;"><code>padm_delivery/docs/PADM_Data_Lineage.xlsx</code></p>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
