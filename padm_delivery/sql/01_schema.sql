@@ -122,8 +122,12 @@ USING
        'BOTH',             20)
     , ('NBR',                              'NBR',                          'NUMBER', 'FRACTION', 4, 0,    1,    FALSE, 'CAMPAIGN_SEGMENT',  'NBR',       'NBR_OVERRIDE',
        'ASSUMPTIONS',      30)
-    , ('UNWIND_RATE',                      'Unwind Rate',                  'NUMBER', 'PERCENT',  2, 0,    1,    FALSE, 'CAMPAIGN_SEGMENT',  'UNWIND_RATE', NULL,
-       'ASSUMPTIONS',      40)
+    -- SEGMENT_COLUMN/ENTERED_ON fixed to 'BOTH' (2026-11-19, same fix CPP/Unit Cost already had):
+    -- UNWIND_RATE_OVERRIDE is a real column on DM_PADM_SEGMENT_ASSUMPTION_VERSION and
+    -- VW_PADM_EFFECTIVE_ASSUMPTION already reads it, but nothing could ever write it with
+    -- SEGMENT_COLUMN NULL -- confirmed live: Unwind Rate never appeared on Segment Viewer.
+    , ('UNWIND_RATE',                      'Unwind Rate',                  'NUMBER', 'PERCENT',  2, 0,    1,    FALSE, 'CAMPAIGN_SEGMENT',  'UNWIND_RATE', 'UNWIND_RATE_OVERRIDE',
+       'BOTH',             40)
     , ('UNWIND_RATE_ADJUSTMENT',           'Unwind Rate Adjustment',       'NUMBER', 'PERCENT',  2, -1,   10,   TRUE,  'SEGMENT',           NULL,
        'UNWIND_RATE_ADJUSTMENT_OVERRIDE',  'SEGMENT_VIEWER',    50)
     , ('RATE_ADJUSTMENT',                  'Rate Adjustment',              'NUMBER', 'PERCENT',  2, -1,   10,   TRUE,  'SEGMENT',           NULL,
