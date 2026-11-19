@@ -228,7 +228,7 @@ def _selection_section(session, campaign, segment_id):
 
     # Excel-like range tools (true click-drag fill is not available in st.data_editor).
     tiers, buckets = list(state["grid"].index), list(state["grid"].columns)
-    with st.expander("Apply % to range / fill rows or columns / clear", expanded=False):
+    with st.expander("Apply % to range / fill rows or columns / clear", expanded=True):
         c1, c2, c3, c4, c5 = st.columns(5)
         tier_from = c1.selectbox("Tier from", tiers, key=f"sv_rt1_{cid}_{segment_id}", disabled=locked)
         tier_to = c2.selectbox("Tier to", tiers, index=len(tiers) - 1, key=f"sv_rt2_{cid}_{segment_id}", disabled=locked)
