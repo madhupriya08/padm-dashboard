@@ -33,6 +33,12 @@ OPTIONAL_FIELDS = [
     ("MLA_FLAG", "MLA", ["Y", "N"]),
     ("RISK_SCORE_TYPE", "Risk Score Type", "CRS_MODEL"),
     ("RESPONSE_MODEL_TYPE", "Response Model Type", "RESPONSE_MODEL_TYPE"),
+    # Re-added (2026-11-19, user's explicit call): Sgn-off_proposal.pdf's Segmentation Creation
+    # list has "Prospect Type (Prospecting, Retargeting)" as its own field -- it was dropped in
+    # the earlier OPTIONAL_FIELDS trim by mistake, lumped in with fields that really don't belong
+    # here. Backend already supports it (SEGMENT_OPTIONAL_FIELDS in repository.py); only the form
+    # input was missing. Left blank, create_segment() still defaults it to 'ALL' as before.
+    ("PROSPECT_SEGMENT_TYPE", "Prospect Type", ["PROSPECTING", "RETARGETING"]),
 ]
 
 
