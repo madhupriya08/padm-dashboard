@@ -191,6 +191,47 @@ tab and Table dictionary are saved at `padm_delivery/docs/PADM_FINAL_DATABASE_DO
 but that workbook itself uses the OLD status vocabulary and an unrelated file-numbering scheme --
 treat it as a useful but stale cross-reference, not current truth.
 
+## 4e. Create Segment page overhaul + governed-segment sync (2026-11-19, later same day)
+
+Large batch of real fixes to `padm/tabs/create_segment.py` (full file sent to the user, also in
+`padm_delivery/padm/tabs/create_segment.py`):
+- Mandatory field labels now show `*`.
+- `source_names()`'s dropdown fix: now unions with `DEFAULT_SOURCES` instead of `or`-falling-back
+  -- the old code silently dropped TRANSUNION once any Experian-only segment existed.
+- `OPTIONAL_FIELDS` trimmed to exactly what `Sgn-off_proposal.pdf`'s Segment Creation section
+  lists (dropped `PROSPECT_SEGMENT_TYPE`/`CREDIT_BUREAU_MODEL`/`CREDIT_BUREAU_SCORE`/`CRS_MODEL`/
+  `CRS_SCORE` -- those belong to Campaign Creation's separate grouping dropdowns). Free-form field
+  removed (not in that list either). Times Mailed kept (it is in the list) but is write-only --
+  stored, not yet used to filter anything.
+- `SOURCE_SCORE_TYPES`: Bureau Score Type dropdown now scoped by selected Prospect Source Bureau.
+  LIFT shown for BOTH bureaus per the user's explicit call, even though Credit One's own
+  `T_EXPERIAN_MAILFILE`/`T_TRANSUNION_MAILFILE` data dictionaries confirm `LIFT_SCORE` exists only
+  in the Experian table -- this is a deliberate UI-only choice, not a data-backed decision.
+- New `repository.discover_segments()` + a "Sync governed segments from source" button: MERGEs
+  (insert-only -- `DM_PADM_SEGMENT_1` has no `USER_CREATED_FLAG` to safely guard an update branch)
+  from `VW_PADM_SEGMENT_SOURCE_CANDIDATE` into `DM_PADM_SEGMENT_1`, modeled on the existing, real
+  `discover_campaign()` pattern. This was built to fix a real, confirmed root cause: `DM_PADM_
+  SEGMENT_1` (what the app reads) was never synced from real historical ACM/mailfile data the way
+  campaigns already are, which is why "Segments on this campaign" looked empty even for completed
+  campaigns through November.
+
+**Critical: `VW_PADM_SEGMENT_SOURCE_CANDIDATE` had to be rebuilt.** Its original definition (real,
+confirmed via `GET_DDL` earlier this session) read from `DM_PADM_TR_MAILFILE_NORMALIZED`, which
+the user confirmed is **not part of this project** and dropped it. The rebuild is at
+`padm_delivery/sql/segment_source_candidate_rebuild.sql` -- sources directly from
+`CSTONE_BIZ.REFERENCE.T_EXPERIAN_MAILFILE`/`T_TRANSUNION_MAILFILE` (real tables, confirmed via
+their actual data dictionaries), bands the raw `PRESCREEN_VANTAGE_V3`/`V4`/`LIFT_SCORE` columns
+against `DM_PADM_SCORE_RANGE_RULE_1` (not the no-suffix one), and leaves `ANNUAL_FEE`/`NETWORK`/
+`MAIL_REMAIL` NULL (confirmed nullable on `DM_PADM_SEGMENT_1`; not available on the raw mailfile
+tables, which are prospect-level, not offer-level). Column list is unchanged from the original, so
+no Python changes were needed beyond `discover_segments()` itself. **Not yet confirmed run/working
+in the user's real environment as of this note** -- verify the sanity-check query in that file
+returns real rows before trusting the sync button.
+
+Also confirmed in this same thread: `RISK_SCORE_TYPE` on the raw mailfile tables (`CRS18`/`CRS23`
+Experian, `LBX20` TransUnion) is unrelated to Vantage V3/V4/LIFT -- a dead end, don't reuse it for
+bureau score type classification.
+
 ## 5. Working style that got results in the prior conversation (keep doing this)
 
 - **Never guess at SQL object names, signatures, or column names.** The user has live Snowflake

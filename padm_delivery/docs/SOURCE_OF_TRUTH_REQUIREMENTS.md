@@ -229,6 +229,57 @@ From `Sgn-off_proposal.pdf`'s own "Open Items & Decisions Required" table:
 - Performance SLAs -- **TBD**
 - Change-highlighting methodology -- **TBD**
 
+## Additional source: Unwinds_optimized files (read 2026-11-19)
+
+**`Unwinds_optimized-_vivians_code.pdf`** (24 pages) + **`Unwinds_optimized-_vivians_code_continuation.pdf`**
+(24 pages) -- one continuous legacy SQL script (not two revisions), a **different pipeline from the
+NRR_all_optimized files** above. Where NRR files build `prospect_type`/`campaign_segment` labels for
+*pre-mail* segmentation, these Unwinds files are a **post-booking unwind-rate validation/ETL script**:
+pull mailfiles -> classify `prospect_type`/`campaign_segment`/`score_range` (same VS3/VS4 CASE WHEN
+pattern as the NRR files, extended with `ASSUMPTION_STATUS`/campaign-code-exclusion logic and Experian/
+TransUnion Prescreen Macro back-calculation) -> join to applications/boards (`FACT_APPLICATION`,
+`DIM_APPLICATION_STATUS`) -> join to `FACT_CARD_MONTHLY` to pull accounts that boarded and later
+unwound (`UNWIND_INDICATOR = 1`, specific `STATUS_REASON_CODE`s) -> produce `unwinds_validation` /
+`unwinds_output` tables (one row per campaign/segment/tier with boards, unwinds, association,
+score range). This is the reference implementation for how **historical unwind rates get computed
+per tier**, not a dashboard spec -- relevant background for Campaign Assumptions' Unwind Rate
+assumption and Segment Viewer's Unwind Rate grid, but not itself a UI requirement.
+
+## LIFT score type search result
+
+**Searched all 4 PDFs for "LIFT"/"Lift". Found real content, but it does NOT support treating LIFT
+as a peer "Bureau Score Type" alongside VS3/VS4 the way DM_PADM_SCORE_RANGE_RULE_1 currently models
+VS3/VS4 (symmetric score bands like 300-499/500-529/.../731+). Concretely:**
+
+1. `e.LIFT_SCORE` is a real raw column pulled from `CSTONE_BIZ.REFERENCE.T_EXPERIAN_MAILFILE`
+   (TransUnion's mailfile has no equivalent -- `NULL AS LIFT_SCORE` in that branch). It sits
+   alongside `RISK_SCORE_TYPE`/`RISK_SCORE` (PRE_SCREEN), not alongside `PRESCREEN_VANTAGE_V3`/`V4`.
+2. **LIFT maps to the existing `Emerging Consumer` prospect type, not a new one.** A commented-out
+   (confirmed unused -- "-- unnecessary as it is not part of final output") branch in the
+   continuation file reads: `CASE WHEN campaign_segment = 'Emerging Consumer' THEN 'LIFT' ELSE
+   response_model_type END` -- i.e. the script's own author used "LIFT" and "Emerging Consumer"
+   interchangeably as labels for the same population. `Emerging Consumer` is already a real,
+   confirmed `prospect_type` value in the NRR files (`WHEN e.campaign_source = 'E' THEN 'Emerging
+   Consumer'`).
+3. **A real, explicit business rule involving LIFT_SCORE exists**: `-- Exclude Emerging consumers
+   with a liftscore of < 566` -> `CASE WHEN CAMPAIGN_SEGMENT = 'Emerging Consumer' AND LIFT_SCORE <
+   566 THEN 'EXCLUDE' ELSE NULL END AS ASSUMPTION_STATUS_EC`.
+4. **LIFT_SCORE does get bucketed, but into `RESPONSE_MODEL_TIER` boundary values for post-booking
+   unwind-rate analysis**, not into VS3/VS4-style score-range codes. The exact, real tier boundaries
+   (`a.LIFT_SCORE` -> `RESPONSE_MODEL_TIER_recalc`, Unwinds file, continuation pages ~17-18):
+   `566` (566-585), `586` (586-601), `602` (=602), `603` (603-610), `611` (611-620), `621`
+   (621-630), `631` (631-640), `641` (641-651), `652` (652-662), `663` (663-676), `677` (677-692),
+   `693` (693-702), `703` (703-708), `709` (709-729), `730` (730-806). These are fine-grained
+   ~10-20-point tier cutpoints, not the ~30-70-point bands VS3/VS4 use.
+
+**Recommendation (for the user, not auto-applied)**: don't manually insert `DM_PADM_SCORE_RANGE_RULE_1`
+rows for `BUREAU_SCORE_TYPE = 'LIFT'` shaped like the existing VS3/VS4 rows (e.g. a guessed "LIFT
+550-600") -- that would misrepresent what LIFT actually is in the real system. If "LIFT" is meant to
+be selectable as a Bureau Score Type in Create Segment, the real semantics confirmed here are: LIFT
+*is* the Emerging Consumer population, scored via `LIFT_SCORE` (not Vantage V3/V4), with its own
+566-806 exclude-below-566 range and the 15 tier cutpoints above -- a decision on how (or whether) to
+expose that in Create Segment's dropdown is the user's call, not something to guess into the schema.
+
 ## Open conflicts / ambiguities
 
 1. **Status vocabulary, a THIRD variant found.** `PADM_CLARIFICATIONS.pdf` uses yet another status
