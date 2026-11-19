@@ -10,15 +10,14 @@ DEFAULT_SOURCES = ["EXPERIAN", "TRANSUNION"]
 NONE = "— none —"
 
 # (form field, label, dropdown field in VW_PADM_SEGMENT_DROPDOWN_60D or fixed options)
+# Trimmed to exactly the fields Sgn-off_proposal.pdf's "Segment Creation" section lists (Bureau
+# Score Type / Range / Source are mandatory fields above, shown separately). PROSPECT_SEGMENT_TYPE,
+# CREDIT_BUREAU_MODEL, CREDIT_BUREAU_SCORE, CRS_MODEL, CRS_SCORE were here before but aren't in
+# that list -- they belong to Campaign Creation's separate offer-grouping dropdowns, not this tab.
 OPTIONAL_FIELDS = [
-    ("PROSPECT_SEGMENT_TYPE", "Prospect Type", ["PROSPECTING", "RETARGETING"]),
-    ("CREDIT_BUREAU_MODEL", "Credit Bureau Model", "CREDIT_BUREAU_MODEL"),
-    ("CREDIT_BUREAU_SCORE", "Credit Bureau Score", "CREDIT_BUREAU_SCORE"),
     ("ANNUAL_FEE", "Annual Fee", "ANNUAL_FEE"),
     ("NETWORK", "Network", "NETWORK"),
     ("MLA_FLAG", "MLA", ["Y", "N"]),
-    ("CRS_MODEL", "CRS Model", "CRS_MODEL"),
-    ("CRS_SCORE", "CRS Score", "CRS_SCORE"),
     ("RISK_SCORE_TYPE", "Risk Score Type", "CRS_MODEL"),
     ("RESPONSE_MODEL_TYPE", "Response Model Type", "RESPONSE_MODEL_TYPE"),
 ]
@@ -58,7 +57,11 @@ def _optional_inputs(dropdowns, key, defaults=None, disabled=False):
 def _create_form(session, campaign, offers, dropdowns):
     locked = campaign["locked"]
     rules = repository.score_range_rules(session)
-    sources = repository.source_names(session)["SOURCE_NAME"].tolist() or DEFAULT_SOURCES
+    # Union with DEFAULT_SOURCES, not `or` -- source_names() only reflects bureaus already used by
+    # a governed segment or DM_PADM_POPULATION_GROUP_RULE, so a real source (e.g. TRANSUNION) with
+    # no segments yet silently disappeared under the old `or` fallback (which only triggers on a
+    # fully empty list). This guarantees both known sources always show.
+    sources = sorted(set(repository.source_names(session)["SOURCE_NAME"].tolist()) | set(DEFAULT_SOURCES))
     score_types = sorted(rules["SCORE_TYPE"].dropna().unique().tolist())
 
     st.subheader("Create segment")
@@ -66,14 +69,14 @@ def _create_form(session, campaign, offers, dropdowns):
         st.warning("No active score-range rules in DM_PADM_SCORE_RANGE_RULE_1 -- add one before creating segments.")
         return
     with st.container(border=True):
-        st.markdown("**Mandatory fields**")
+        st.markdown("**Mandatory fields** (*)")
         c1, c2, c3, c4 = st.columns(4)
-        source = c1.selectbox("Prospect Source Bureau", sources, key="cs_source", disabled=locked)
-        score_type = c2.selectbox("Bureau Score Type", score_types, key="cs_score_type", disabled=locked)
+        source = c1.selectbox("Prospect Source Bureau *", sources, key="cs_source", disabled=locked)
+        score_type = c2.selectbox("Bureau Score Type *", score_types, key="cs_score_type", disabled=locked)
         type_rules = rules[rules["SCORE_TYPE"] == score_type]
         lo, hi = int(type_rules["SCORE_MIN"].min()), int(type_rules["SCORE_MAX"].max())
-        score_min = c3.number_input("Score Min", min_value=0, max_value=1000, value=lo, step=1, key="cs_min", disabled=locked)
-        score_max = c4.number_input("Score Max", min_value=0, max_value=1000, value=hi, step=1, key="cs_max", disabled=locked)
+        score_min = c3.number_input("Score Min *", min_value=0, max_value=1000, value=lo, step=1, key="cs_min", disabled=locked)
+        score_max = c4.number_input("Score Max *", min_value=0, max_value=1000, value=hi, step=1, key="cs_max", disabled=locked)
         st.caption("Valid ranges for this score type: " + ", ".join(
             f"{r.SCORE_RANGE_CODE} ({int(r.SCORE_MIN)}-{int(r.SCORE_MAX)})" for r in type_rules.itertuples()))
         range_error = validation.validate_score_range(score_min, score_max, type_rules)
@@ -84,9 +87,7 @@ def _create_form(session, campaign, offers, dropdowns):
 
         st.markdown("**Optional fields** (values mailed in the last 60 days)")
         optional = _optional_inputs(dropdowns, "cs_opt", disabled=locked)
-        c1, c2 = st.columns(2)
-        times_mailed = c1.multiselect("Times Mailed", TIMES_MAILED_BUCKETS, key="cs_tm", disabled=locked)
-        note = c2.text_input("Free-form field", key="cs_note", disabled=locked)
+        times_mailed = st.multiselect("Times Mailed", TIMES_MAILED_BUCKETS, key="cs_tm", disabled=locked)
 
     existing = repository.find_segment(session, score_type, score_min, score_max, source) if not range_error else None
     existing_id = existing.iloc[0]["SEGMENT_ID"] if existing is not None and not existing.empty else None
@@ -117,7 +118,7 @@ def _create_form(session, campaign, offers, dropdowns):
         if ui.require_reason(reason):
             fields = {"SEGMENT_NAME": name, "SOURCE_NAME": source, "SCORE_TYPE": score_type,
                       "SCORE_MIN": score_min, "SCORE_MAX": score_max, "MAIL_REMAIL": campaign["type"],
-                      "TIMES_MAILED_FILTER": times_mailed, "FREE_FORM_NOTE": note.strip() or None, **optional}
+                      "TIMES_MAILED_FILTER": times_mailed, **optional}
             ui.run_action(SCOPE, lambda: repository.create_segment(session, campaign["id"], fields, selected, reason.strip()),
                           f"Segment {name} created with {len(selected)} offer(s).")
 
