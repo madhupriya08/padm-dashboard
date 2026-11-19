@@ -432,11 +432,6 @@ def render(session):
     _calculated_grids(session, campaign, segment_id, version, pending)
 
     st.divider()
-    with st.container(horizontal=True, vertical_alignment="center"):
-        if st.button("Run Calculation", type="primary", icon=":material/calculate:", disabled=campaign["locked"],
-                      key=f"sv_run_{campaign['id']}"):
-            ui.run_action(SCOPE, lambda: repository.run_calculation(session, campaign["id"]),
-                          lambda r: f"Calculation run {r[0]} COMPLETED ({r[1]} cells, all segments).")
     latest = repository.latest_calculation_run(session, campaign["id"])
     if not latest.empty:
         st.caption(f"Latest run: {latest.iloc[0]['CALCULATION_STATUS']} at {latest.iloc[0]['CALCULATION_COMPLETED_TS']}")
