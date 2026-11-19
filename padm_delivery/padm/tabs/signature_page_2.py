@@ -28,27 +28,20 @@ def _actions(session, campaign):
     if run is not None:
         st.caption(f"Latest calculation run: **{run['CALCULATION_STATUS']}** at {run['CALCULATION_COMPLETED_TS']} "
                    f"by {run['CALCULATED_BY']} (working version v{run['CAMPAIGN_WORKING_VERSION_NUMBER']}).")
-    else:
-        st.caption("No calculation run yet.")
-    completed = run is not None and run["CALCULATION_STATUS"] == "COMPLETED"
-
-    c1, c2 = st.columns(2)
-    with c1.container(border=True):
-        st.markdown("**1. Run Calculation**")
-        st.caption("Freezes VW_PADM_SEGMENT_CALCULATION_CURRENT into DM_PADM_CALCULATION_RUN / _CELL.")
-        if st.button("Run Calculation", icon=":material/calculate:", disabled=locked, key="sp2_run"):
-            ui.run_action(SCOPE, lambda: repository.run_calculation(session, cid),
-                          lambda r: f"Calculation run COMPLETED ({r[1]} cells).")
-    with c2.container(border=True):
-        st.markdown("**2. Generate Signature Page 2**")
-        st.caption("Immutable snapshot of the latest COMPLETED run; status -> PENDING_APPROVAL.")
-        if st.button("Generate Signature Page 2", type="primary", icon=":material/description:",
-                      disabled=locked or not completed or status not in ("DRAFT", "IN_PROGRESS", "PENDING_APPROVAL"),
-                      key="sp2_generate"):
-            ui.run_action(SCOPE, lambda: repository.generate_signature_page_2(session, cid, run["CALCULATION_RUN_ID"]))
 
     with st.container(border=True):
-        st.markdown("**3. Approve or Reject**")
+        st.markdown("**1. Generate Signature Page 2**")
+        st.caption("Runs the calculation, then creates an immutable snapshot of the result; status -> PENDING_APPROVAL.")
+        if st.button("Generate Signature Page 2", type="primary", icon=":material/description:",
+                      disabled=locked or status not in ("DRAFT", "IN_PROGRESS", "PENDING_APPROVAL"),
+                      key="sp2_generate"):
+            def generate():
+                run_id, _ = repository.run_calculation(session, cid)
+                return repository.generate_signature_page_2(session, cid, run_id)
+            ui.run_action(SCOPE, generate)
+
+    with st.container(border=True):
+        st.markdown("**2. Approve or Reject**")
         st.caption("Approve copies the final state into the audit/snapshot tables and makes the whole campaign "
                    "read-only. Reject returns the campaign to DRAFT; prior versions are kept.")
         pending = status == "PENDING_APPROVAL"
