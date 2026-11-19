@@ -213,8 +213,7 @@ def _campaign_segments(session, campaign, offers, allocations, dropdowns):
                                  format_func=_offer_label(offers, allocations),
                                  key=f"cs_edit_offers_{segment_id}", disabled=locked)
         reason = ui.reason_input(f"cs_edit_reason_{segment_id}", disabled=locked)
-        c1, c2 = st.columns(2)
-        if c1.button("Save edits", type="primary", icon=":material/edit:", disabled=locked, key=f"cs_edit_save_{segment_id}"):
+        if st.button("Save edits", type="primary", icon=":material/edit:", disabled=locked, key=f"cs_edit_save_{segment_id}"):
             if ui.require_reason(reason):
                 def save():
                     messages = []
@@ -225,7 +224,9 @@ def _campaign_segments(session, campaign, offers, allocations, dropdowns):
                         messages.append(repository.set_segment_offers(session, campaign["id"], segment_id, chosen, reason.strip()))
                     return " ".join(messages) or "Nothing changed."
                 ui.run_action(SCOPE, save)
-        if c2.button("Remove from Campaign", icon=":material/remove_circle:", disabled=locked, key=f"cs_remove_{segment_id}"):
+        _, remove_col, _ = st.columns([1, 1, 1])
+        if remove_col.button("Remove from Campaign", icon=":material/remove_circle:", disabled=locked,
+                               key=f"cs_remove_{segment_id}", use_container_width=True):
             if ui.require_reason(reason):
                 ui.run_action(SCOPE, lambda: repository.remove_segment_from_campaign(session, campaign["id"], segment_id, reason.strip()))
 
