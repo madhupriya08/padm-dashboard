@@ -281,6 +281,55 @@ def totals_display(totals, label, mask_calculated=False):
     return pd.DataFrame([row])
 
 
+# Columns whose real value is per-SEGMENT, not per-offer: VW_PADM_SIGNATURE_PAGE_LIVE's
+# calculation join is on (CAMPAIGN_ID, SEGMENT_ID) only, with no offer dimension, so these are
+# already identical across every offer row within the same segment (confirmed from the view's own
+# SQL). Everything else in SIGNATURE_COLUMNS is a real per-offer attribute (Test Type, Promo, IVR,
+# etc.) that can legitimately differ between offers in the same segment.
+SEGMENT_LEVEL_COLUMNS = {
+    "QUANTITY", "NBR", "BOARDS", "CPP", "MARKETING_EXPENSE", "UNWIND_RATE", "PRE_UNWIND_CPA",
+    "POST_UNWIND_CPA", "TIMES_MAILED_0_PERCENTAGE", "TIERS", "POST_UNWIND_BOARDS",
+    "MARKETING_PLUS_BOOKING_COSTS",
+}
+
+
+def collapse_to_segment(rows):
+    """Signature Page (Tab 2) shows one row per segment, not one per offer (user's explicit call,
+    2026-11-19). Also fixes a real pre-existing issue, not just a cosmetic one: because the
+    segment-level calculated columns above are repeated identically across every offer row in a
+    segment, summing them per-offer (the old flat display) inflated GRAND TOTAL by that segment's
+    offer count. Collapsing first means each segment's numbers are only counted once.
+
+    Offer-level columns that vary between offers in the same segment are shown as a distinct-value
+    summary rather than silently picking one and discarding the rest."""
+    if rows.empty or "SEGMENT_ID" not in rows.columns:
+        return rows
+    with_segment = rows[rows["SEGMENT_ID"].notna()].copy()
+    without_segment = rows[rows["SEGMENT_ID"].isna()]
+    if with_segment.empty:
+        return rows
+    collapsed_rows = []
+    for segment_id, group in with_segment.groupby("SEGMENT_ID", sort=False):
+        row = {"SEGMENT_ID": segment_id, "OFFER_COUNT": len(group)}
+        for col in group.columns:
+            if col in ("SEGMENT_ID", "CAMPAIGN_OFFER_ID"):
+                continue
+            if col in SEGMENT_LEVEL_COLUMNS:
+                row[col] = group[col].iloc[0]
+                continue
+            distinct = sorted(group[col].dropna().astype(str).unique())
+            if len(distinct) == 0:
+                row[col] = None
+            elif len(distinct) == 1:
+                row[col] = distinct[0]
+            else:
+                shown = ", ".join(distinct[:3]) + (", ..." if len(distinct) > 3 else "")
+                row[col] = f"{len(distinct)} distinct ({shown})"
+        collapsed_rows.append(row)
+    collapsed = pd.DataFrame(collapsed_rows)
+    return pd.concat([collapsed, without_segment], ignore_index=True) if not without_segment.empty else collapsed
+
+
 def signature_frame(rows, mask_calculated=False, group_by_population=False):
     """Display frame: flat + grand total, or population groups with sub-totals + grand total."""
     if not group_by_population:

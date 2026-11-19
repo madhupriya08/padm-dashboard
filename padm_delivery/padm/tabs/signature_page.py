@@ -17,7 +17,8 @@ def render(session):
     if campaign is None:
         return
     ui.show_flash(SCOPE)
-    st.caption(f"{campaign['name']} · data from ACM only (CSTONE_BIZ.REFERENCE) · one row per offer reservation code. "
+    st.caption(f"{campaign['name']} · data from ACM only (CSTONE_BIZ.REFERENCE) · one row per segment. "
+               "An offer-level field that differs across a segment's offers shows as a distinct-value summary. "
                "Calculated fields stay *pending* until assumptions and selections exist; they fill in on Signature Page 2.")
 
     rows = repository.signature_live(session, campaign["id"])
@@ -29,6 +30,7 @@ def render(session):
             st.info(f"No offers on this campaign yet -- showing the previous campaign's ACM values "
                    f"({prior.iloc[0]['CAMPAIGN_DISPLAY_NAME']}).")
             rows = repository.signature_live(session, prior.iloc[0]["CAMPAIGN_ID"])
+    rows = ui.collapse_to_segment(rows)
 
     if not rows.empty:
         ui.render_signature_page(rows, key=f"sp_table_{campaign['id']}", mask_calculated=True)
