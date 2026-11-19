@@ -362,11 +362,26 @@ def _calculated_grids(session, campaign, segment_id, version, pending):
         "booked_post": ("EXPECTED_UNWINDS_SELECTED", "BOOKED_PRE_UNWIND_SELECTED"),
         "booked_post_universe": ("EXPECTED_UNWINDS_UNIVERSE", "BOOKED_PRE_UNWIND_UNIVERSE"),
     }
-    # Side-by-side rows, matching the real Segment.xlsx alignment (horizontal + vertical scroll
-    # per grid, via ui.render_grid's own bordered container + fixed-height dataframe).
+    # Side-by-side rows, matching the real Segment.xlsx alignment. Each grid renders at its
+    # natural full width (no per-grid horizontal scrollbar); the CSS below lets the row's
+    # st.columns block overflow instead of clipping each column to an equal share of the page,
+    # so the whole row shares ONE horizontal scrollbar. Vertical scroll stays per-grid (fixed
+    # height via ui.render_grid / grid_height, so it only ever triggers if a grid is unusually
+    # tall).
+    st.markdown("""
+    <style>
+    div[class*="st-key-grid_row_"] > div[data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+    }
+    div[class*="st-key-grid_row_"] div[data-testid="column"] {
+        width: auto !important; min-width: auto !important; flex: 0 0 auto !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     for row_number, row_keys in enumerate(formulas.GRID_ROWS, start=2):
         st.markdown(f"**{row_number}. {' / '.join(by_key[k][1] for k in row_keys)}**")
-        cols = st.columns(len(row_keys))
+        row_container = st.container(key=f"grid_row_{row_number}")
+        cols = row_container.columns(len(row_keys))
         for col, key in zip(cols, row_keys):
             _, title, column, fmt, caption, ratio = by_key[key]
             ok, why = needs.get(key, (True, ""))
