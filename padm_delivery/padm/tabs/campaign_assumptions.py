@@ -54,7 +54,11 @@ def _history_with_diffs(history, codes):
 
 def _campaign_level(session, campaign, definitions):
     st.subheader("Campaign-level assumptions")
-    defs = definitions[definitions["CAMPAIGN_COLUMN"].notna()]
+    # NBR excluded (2026-11-19, user's explicit call): it's a calculated value (Quantity x
+    # Selected NRR, see VW_PADM_SIGNATURE_PAGE_LIVE), not something to enter as an assumption
+    # override here. The DM_PADM_ASSUMPTION_DEFINITION row and NBR/NBR_OVERRIDE columns stay --
+    # only this page's input for it is removed, so nothing downstream is silently dropped.
+    defs = definitions[definitions["CAMPAIGN_COLUMN"].notna() & (definitions["ASSUMPTION_CODE"] != "NBR")]
     current = repository.campaign_assumption_current(session, campaign["id"])
     version = int(current.iloc[0]["VERSION_NUMBER"]) if not current.empty else 0
     source = None
