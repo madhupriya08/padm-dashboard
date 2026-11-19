@@ -289,7 +289,7 @@ def _selection_section(session, campaign, segment_id):
                 return 0
             old = float(lookup.loc[(tier, bucket), "SELECTION_PERCENTAGE"])
             if abs(new - old) > 1e-9:
-                changes.append((int(tier), bucket, new, int(lookup.loc[(tier, bucket), "ROW_VERSION"])))
+                changes.append((int(tier), bucket, new, int(lookup.loc[(tier, bucket), "ROW_VERSION"]), old))
 
     with st.container(horizontal=True, vertical_alignment="bottom"):
         reason = ui.reason_input(f"sv_sel_reason_{cid}_{segment_id}", disabled=locked)
