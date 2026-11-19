@@ -14,7 +14,14 @@ from padm import formulas, repository, ui, validation
 from padm.formulas import TIMES_MAILED_BUCKETS
 
 SCOPE = "segment_viewer"
+# Selection grid cell colors (priority: BLUE > GREEN > YELLOW -- an unsaved edit always wins over
+# a saved or prior-matched state, since that's the most actionable thing to notice):
+#   BLUE   = this cell differs from what's currently saved (DM_PADM_SELECTION_WORKING) -- unsaved.
+#   GREEN  = this cell matches what's currently saved and is non-zero.
+#   YELLOW = prior campaign's selection was non-zero here, but neither of the above applies.
 YELLOW = "background-color: #fff3b0"
+GREEN = "background-color: #c6f6c6"
+BLUE = "background-color: #bfdbfe"
 VERSIONS = ["Working Version", "Final Version"]
 
 # ---------------------------------------------------------------------------------------------
@@ -73,7 +80,13 @@ def parse_cde_file(raw_bytes, file_name):
 # ---------------------------------------------------------------------------------------------
 
 def _segment_inputs(session, campaign, segment_id):
-    """Rate Adjustment, Seasonality, Unwind Rate Adjustment, Unit Cost (spec 7.7)."""
+    """Rate Adjustment, Seasonality, Unwind Rate Adjustment, Unit Cost, CPP (spec 7.7).
+
+    Prepopulated from the campaign's latest assumptions (2026-11-19, user's explicit call) for
+    any field that has a campaign-level counterpart (CPP, Unit Cost) -- shown as the starting
+    value, still editable/overridable per segment. Fields with no campaign-level column at all
+    (Rate Adjustment, Seasonality, Unwind Rate Adjustment -- segment-only by schema design) have
+    nothing to inherit, so they still start blank."""
     definitions = repository.assumption_definitions(session)
     defs = definitions[definitions["SEGMENT_COLUMN"].notna() & definitions["ENTERED_ON"].isin(["SEGMENT_VIEWER", "BOTH"])
                         & (definitions["ASSUMPTION_LEVEL"] != "CAMPAIGN")]
@@ -81,17 +94,25 @@ def _segment_inputs(session, campaign, segment_id):
     current = repository.segment_assumption_current(session, campaign["id"], segment_id)
     version = int(current.iloc[0]["VERSION_NUMBER"]) if not current.empty else 0
     stored = current.iloc[0].to_dict() if not current.empty else {}
+    campaign_current = repository.campaign_assumption_current(session, campaign["id"])
+    campaign_values = campaign_current.iloc[0].to_dict() if not campaign_current.empty else {}
     locked = campaign["locked"]
 
     with st.container(border=True):
         st.markdown("**Segment-level inputs**")
+        st.caption("Prepopulated from the campaign's latest assumptions where a campaign-level value exists; "
+                   "still editable here as a segment-specific override.")
         values, errors = {}, []
         for col, (_, d) in zip(st.columns(len(defs)), defs.iterrows()):
             code = d["ASSUMPTION_CODE"]
             suffix = validation.unit_suffix(d)
+            segment_value = stored.get(d["SEGMENT_COLUMN"])
+            campaign_column = d.get("CAMPAIGN_COLUMN")
+            default = segment_value if segment_value is not None else (
+                campaign_values.get(campaign_column) if campaign_column else None)
             values[code] = col.number_input(
                 f"{d['ASSUMPTION_LABEL']}{' (' + suffix + ')' if suffix else ''}",
-                value=validation.to_display(d, stored.get(d["SEGMENT_COLUMN"])),
+                value=validation.to_display(d, default),
                 step=validation.input_step(d), format=validation.input_format(d), placeholder="inherit / 0",
                 help=f"{int(d['DECIMALS'])} decimals{', can be negative' if d['ALLOW_NEGATIVE'] else ', ≥ 0'}",
                 disabled=locked, key=f"sv_in_{campaign['id']}_{segment_id}_{version}_{code}",
@@ -180,7 +201,8 @@ def _selection_section(session, campaign, segment_id):
     if prior.empty:
         st.info("No prior month selection -- the grid starts at zero.", icon=":material/info:")
     else:
-        st.caption(f"Prepopulated from {prior.iloc[0]['CAMPAIGN_DISPLAY_NAME']}. Yellow = selected in the prior month.")
+        st.caption(f"Prepopulated from {prior.iloc[0]['CAMPAIGN_DISPLAY_NAME']}.")
+    st.caption("🟦 Blue = unsaved change · 🟩 Green = currently saved · 🟨 Yellow = prior campaign had a selection here")
 
     signature = int(working["ROW_VERSION"].sum())
     state_key = f"sv_sel_{cid}_{segment_id}"
@@ -233,9 +255,19 @@ def _selection_section(session, campaign, segment_id):
             st.session_state.pop(state_key, None)
             st.rerun()
 
-    # Styled read-only copy with yellow prior-month highlights (cell styling isn't available in the editor).
-    highlight = prior_grid.apply(lambda col: col.map(lambda v: YELLOW if pd.notna(v) and v > 0 else ""))
-    st.dataframe(state["grid"].style.format("{:.2f}%").apply(lambda _: highlight.reindex_like(state["grid"]).fillna(""), axis=None),
+    # Styled read-only copy (cell styling isn't available in st.data_editor itself). Priority:
+    # unsaved change (blue) > currently saved, non-zero (green) > prior campaign had a selection
+    # here (yellow). base = what's actually saved right now; state["grid"] = the grid as shown,
+    # including any not-yet-saved edits.
+    base_aligned = base.reindex_like(state["grid"]).fillna(0)
+    is_unsaved = (state["grid"] - base_aligned).abs() > 1e-9
+    is_saved_nonzero = (~is_unsaved) & (base_aligned > 0)
+    is_prior_only = (~is_unsaved) & (~is_saved_nonzero) & (prior_grid.reindex_like(state["grid"]).fillna(0) > 0)
+    highlight = pd.DataFrame("", index=state["grid"].index, columns=state["grid"].columns)
+    highlight[is_prior_only] = YELLOW
+    highlight[is_saved_nonzero] = GREEN
+    highlight[is_unsaved] = BLUE
+    st.dataframe(state["grid"].style.format("{:.2f}%").apply(lambda _: highlight, axis=None),
                  height=ui.grid_height(state["grid"]), key=f"sv_sel_view_{cid}_{segment_id}")
 
     # Diff against the stored working grid.
