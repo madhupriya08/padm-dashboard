@@ -462,6 +462,48 @@ def find_segment(session, score_type, score_min, score_max, source_name):
     )
 
 
+def discover_segments(session):
+    """Bulk insert-only MERGE from VW_PADM_SEGMENT_SOURCE_CANDIDATE (real ACM mailfile history)
+    into DM_PADM_SEGMENT_1 -- the same source-candidate view bkp_files/load_campaigns_segments_
+    from_source.sql reads, but targeting the table the app actually uses. Matched on the same
+    4-field natural key find_segment() uses (SOURCE_NAME, SCORE_TYPE, SCORE_MIN, SCORE_MAX),
+    since DM_PADM_SEGMENT_1 has no SEGMENT_KEY column. Never updates an existing segment --
+    DM_PADM_SEGMENT_1 also has no USER_CREATED_FLAG to distinguish a dashboard-curated row from a
+    source-derived one, so insert-only (new governed segments only) is the safe choice, unlike
+    discover_campaign()'s MATCHED/update branches. Returns the number of new segments inserted."""
+    rows = exec_sql(
+        session,
+        f"""
+        MERGE INTO {SCHEMA}.DM_PADM_SEGMENT_1 AS T
+        USING (
+            SELECT SUGGESTED_SEGMENT_NAME AS SEGMENT_NAME, SOURCE AS SOURCE_NAME,
+                   BUREAU_SCORE_TYPE AS SCORE_TYPE, SCORE_MIN, SCORE_MAX,
+                   COALESCE(PROSPECT_SEGMENT_TYPE, 'ALL') AS PROSPECT_SEGMENT_TYPE,
+                   ANNUAL_FEE, NETWORK, MLA_FLAG, RESPONSE_MODEL_TYPE, RISK_SCORE_TYPE, MAIL_REMAIL
+            FROM {SCHEMA}.VW_PADM_SEGMENT_SOURCE_CANDIDATE
+            WHERE SCORE_MIN IS NOT NULL AND SCORE_MAX IS NOT NULL AND SOURCE IS NOT NULL
+              AND BUREAU_SCORE_TYPE IS NOT NULL
+            QUALIFY ROW_NUMBER() OVER (
+                PARTITION BY SOURCE, BUREAU_SCORE_TYPE, SCORE_MIN, SCORE_MAX
+                ORDER BY LAST_MAIL_DATE DESC, SOURCE_RECORD_COUNT DESC
+            ) = 1
+        ) AS S
+        ON UPPER(T.SOURCE_NAME) = UPPER(S.SOURCE_NAME) AND UPPER(T.SCORE_TYPE) = UPPER(S.SCORE_TYPE)
+           AND T.SCORE_MIN = S.SCORE_MIN AND T.SCORE_MAX = S.SCORE_MAX
+        WHEN NOT MATCHED THEN INSERT (
+            SEGMENT_ID, SEGMENT_NAME, SOURCE_NAME, SCORE_TYPE, SCORE_MIN, SCORE_MAX,
+            PROSPECT_SEGMENT_TYPE, ANNUAL_FEE, NETWORK, MLA_FLAG, RESPONSE_MODEL_TYPE,
+            RISK_SCORE_TYPE, MAIL_REMAIL, ACTIVE_FLAG, VALID_FROM, ROW_VERSION
+        ) VALUES (
+            UUID_STRING(), S.SEGMENT_NAME, S.SOURCE_NAME, S.SCORE_TYPE, S.SCORE_MIN, S.SCORE_MAX,
+            S.PROSPECT_SEGMENT_TYPE, S.ANNUAL_FEE, S.NETWORK, S.MLA_FLAG, S.RESPONSE_MODEL_TYPE,
+            S.RISK_SCORE_TYPE, S.MAIL_REMAIL, TRUE, CURRENT_DATE(), 1
+        )
+        """,
+    )
+    return rows_affected(rows, "inserted")
+
+
 def campaign_segments(session, campaign_id):
     return df(
         session,

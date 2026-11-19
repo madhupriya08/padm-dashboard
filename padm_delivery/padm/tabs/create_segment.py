@@ -214,6 +214,14 @@ def render(session):
     ui.show_flash(SCOPE)
     st.caption("Segmentation rules are TBD; score ranges and group labels come from reference tables "
                "(DM_PADM_SCORE_RANGE_RULE_1, DM_PADM_POPULATION_GROUP_RULE).")
+    with st.container(horizontal=True, vertical_alignment="center"):
+        if st.button("Sync governed segments from source", icon=":material/sync:",
+                      help="Insert-only: adds any new segment found in VW_PADM_SEGMENT_SOURCE_CANDIDATE "
+                           "(real ACM mailfile history) that doesn't already exist here. Never touches "
+                           "or overwrites an existing segment's fields.", key="cs_discover"):
+            ui.run_action(SCOPE, lambda: repository.discover_segments(session),
+                          lambda n: f"{n} new governed segment(s) added from source." if n else
+                                    "No new segments found -- everything in source already exists here.")
     offers = repository.campaign_offers(session, campaign["id"])
     dropdowns = repository.dropdown_values(session)
     _create_form(session, campaign, offers, dropdowns)
