@@ -157,9 +157,24 @@ def grid_height(grid, extra_rows=0):
     return (len(grid) + 1 + extra_rows) * 35 + 3
 
 
+def _grid_cell_text(value, fmt):
+    """Only non-zero values are shown (user's explicit call, matching the real Segment.xlsx) --
+    NULL and exact-zero cells render blank, not '0' / '0.00%' / '-'."""
+    if value is None or (isinstance(value, float) and math.isnan(value)) or pd.isna(value):
+        return ""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if v == 0:
+        return ""
+    return _FORMATS.get(fmt, "{:,.2f}").format(v)
+
+
 def styled(grid, fmt, highlight=None):
-    """Styler with '-' for NULL and optional per-cell background (DataFrame of CSS)."""
-    styler = grid.style.format(_FORMATS.get(fmt, "{:,.2f}"), na_rep="-")
+    """Styler: blank for NULL/zero cells (see _grid_cell_text), optional per-cell background
+    (DataFrame of CSS)."""
+    styler = grid.style.format(lambda v: _grid_cell_text(v, fmt))
     if highlight is not None:
         styler = styler.apply(lambda _: highlight.reindex_like(grid).fillna(""), axis=None)
     return styler.set_properties(subset=pd.IndexSlice[["Total"], :], **{"font-weight": "bold"}) \
@@ -177,8 +192,8 @@ def render_grid(cells, title, value_col, fmt, caption, ratio=None, extra_row=Non
         if extra_row is not None:
             label, values, row_fmt = extra_row
             shown = grid.copy().astype(object)
-            shown = shown.apply(lambda col: col.map(lambda v: _FORMATS.get(fmt, "{:,.2f}").format(v) if pd.notna(v) else "-"))
-            shown.loc[label] = [(_FORMATS[row_fmt].format(v) if pd.notna(v) else "-") for v in values.reindex(grid.columns)]
+            shown = shown.apply(lambda col: col.map(lambda v: _grid_cell_text(v, fmt)))
+            shown.loc[label] = [_grid_cell_text(v, row_fmt) for v in values.reindex(grid.columns)]
             st.dataframe(shown, height=grid_height(shown), key=key)
         else:
             st.dataframe(styled(grid, fmt), height=grid_height(grid), key=key)
