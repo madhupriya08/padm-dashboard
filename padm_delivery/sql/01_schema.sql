@@ -116,7 +116,7 @@ MERGE INTO DM_PADM_ASSUMPTION_DEFINITION AS T
 USING
 (
     SELECT * FROM VALUES
-      ('CPP',                              'CPP',                          'NUMBER', 'CURRENCY', 4, 0,    NULL, FALSE, 'CAMPAIGN',          'CPP',       'CPP_OVERRIDE',
+      ('CPP',                              'CPP',                          'NUMBER', 'CURRENCY', 4, 0,    NULL, FALSE, 'CAMPAIGN_SEGMENT',  'CPP',       'CPP_OVERRIDE',
        'BOTH',             10)
     , ('UNIT_COST',                        'Unit Cost',                    'NUMBER', 'CURRENCY', 2, 0,    NULL, FALSE, 'CAMPAIGN_SEGMENT',  'UNIT_COST', 'UNIT_COST_OVERRIDE',
        'BOTH',             20)
