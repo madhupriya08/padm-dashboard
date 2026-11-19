@@ -7,14 +7,17 @@ from padm.formulas import TIMES_MAILED_BUCKETS
 
 SCOPE = "create_segment"
 DEFAULT_SOURCES = ["EXPERIAN", "TRANSUNION"]
-# LIFT shown for both bureaus per the user's explicit call (2026-11-19) -- note Credit One's own
-# T_EXPERIAN_MAILFILE / T_TRANSUNION_MAILFILE data dictionaries show LIFT_SCORE existing only in
-# T_EXPERIAN_MAILFILE (T_TRANSUNION_MAILFILE has no LIFT_SCORE column). Showing LIFT here for
-# TransUnion is a UI-only choice for now -- no DM_PADM_SCORE_RANGE_RULE_1 bands exist for
-# TRANSUNION + LIFT yet, so selecting it will hit the "no active score-range rules" warning until
-# those rows are added.
+# LIFT restricted to TransUnion only per the user's explicit call (2026-11-19, reversing the
+# earlier "both bureaus" choice). NOTE this contradicts Credit One's own T_EXPERIAN_MAILFILE /
+# T_TRANSUNION_MAILFILE data dictionaries, which show LIFT_SCORE existing only in
+# T_EXPERIAN_MAILFILE -- T_TRANSUNION_MAILFILE has no LIFT_SCORE column at all. This is a
+# UI-only choice: no DM_PADM_SCORE_RANGE_RULE_1 bands exist for LIFT yet (either bureau), so
+# selecting it will hit "no active score-range rules" until a LIFT row is added there, and even
+# then, VW_PADM_SEGMENT_SOURCE_CANDIDATE's rebuild has no TransUnion+LIFT source branch (since
+# the raw mailfile table has no LIFT_SCORE column to read) -- so a TransUnion+LIFT segment can be
+# created manually here, but will never appear via "Sync governed segments from source."
 SOURCE_SCORE_TYPES = {
-    "EXPERIAN": ["VS3", "VS4", "LIFT"],
+    "EXPERIAN": ["VS3", "VS4"],
     "TRANSUNION": ["VS3", "VS4", "LIFT"],
 }
 NONE = "— none —"
