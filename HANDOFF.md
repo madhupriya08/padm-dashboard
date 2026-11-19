@@ -131,13 +131,33 @@ Two real cross-PDF splices were done carefully (not guessed): `operational_proce
 previously cut off -- a bogus 2-line stub that a transcription fork had left in its place was
 found and replaced, not just appended to).
 
-**Still fully missing** (zero content from any source yet): `additional_procedures_and_views.sql`,
-`new_validations.sql`, `updates.sql`, `validations.sql`, `wire_credit_bureau_fields.sql`. The last
-one matters: it likely overlaps with (or supersedes) the `VW_PADM_SIGNATURE_PAGE_LIVE` fix synced
-in section 4a above -- get it before assuming that fix is the final word on Credit Bureau fields.
+**Still fully missing**: `updates.sql`, `validations.sql`, `wire_credit_bureau_fields.sql`. The
+last one matters: it likely overlaps with (or supersedes) the `VW_PADM_SIGNATURE_PAGE_LIVE` fix
+synced in section 4a above -- get it before assuming that fix is the final word on Credit Bureau
+fields.
 
 **`DM_PADM_EMS_RATE_VERSION`** (an EMS rate table referenced by the filename `cde_ems_tables.sql`)
 was never found in any source despite being in that file -- flagged, not fabricated.
+
+## 4c. Two more real files captured (2026-11-19, later same day)
+
+- **`additional_procedures_and_views.sql`** -- turned out to be the user's own copy, already
+  uploaded to their real workspace, of this project's own `dashboard_build/sql/20_additional_procedures_and_views.sql`
+  (confirmed via distinctive comment text only this conversation wrote -- the Section 3 removal
+  note about the redundant `SP_PADM_TRANSITION_CAMPAIGN_STATUS`, and the Section 6 credit-bureau
+  note). Copied verbatim into `padm_delivery/sql/additional_procedures_and_views.sql` -- no
+  re-transcription needed, already verbatim-known content.
+- **`new_validations.sql`** -- a real debugging/scratch file (not a deployment script), captured
+  via 3 photos. Contains ad hoc exploration SELECTs/DESCs against the live schema, 3 one-time
+  `DROP TABLE`s for legacy tables (`DM_PADM_TR_BOARDED_ACCOUNT`, `DM_PADM_TR_APPLICATION_OUTCOME`,
+  `DM_PADM_TR_MAILFILE_NORMALIZED`), and -- important -- direct evidence that the user flagged
+  `VW_PADM_SIGNATURE_PAGE_ALL` and the pre-fix `VW_PADM_SIGNATURE_PAGE_LIVE` as **"WRONG JOINS"**,
+  followed by the corrected `CREATE OR REPLACE VIEW` they wrote. That corrected view matches
+  `padm_delivery/sql/02_views.sql`'s current `VW_PADM_SIGNATURE_PAGE_LIVE` verbatim (the fix from
+  section 4a above is confirmed to be this same, real, applied fix -- not superseded by anything
+  newer). Saved to `padm_delivery/sql/new_validations.sql` with a transcription-confidence note at
+  the top (lines 1-42, from a rotated photo, have a couple of TRANSCRIPTION UNCERTAIN inline
+  comments; lines 43-94, the view DDL, are high-confidence, read from clear photos).
 
 **Confirmed, not guessed**: `DM_PADM_CAMPAIGN_1`'s real DDL uses the OLD status vocabulary
 (`DISCOVERED`/`DRAFT`/`READY_FOR_REVIEW`/`COMPLETED`/`REOPENED`) in its `CHECK` constraint --
