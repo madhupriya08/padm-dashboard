@@ -108,7 +108,11 @@ def _segment_inputs(session, campaign, segment_id):
             suffix = validation.unit_suffix(d)
             segment_value = stored.get(d["SEGMENT_COLUMN"])
             campaign_column = d.get("CAMPAIGN_COLUMN")
-            default = segment_value if segment_value is not None else (
+            # validation.num() (not a bare `is not None` check) because a NULL segment override
+            # comes back from stored.to_dict() as NaN, not None -- `NaN is not None` is True, so
+            # the old check locked onto NaN and never fell back to the campaign value, confirmed
+            # live: CPP went permanently blank here after the first segment-level save.
+            default = segment_value if ui.num(segment_value) is not None else (
                 campaign_values.get(campaign_column) if campaign_column else None)
             values[code] = col.number_input(
                 f"{d['ASSUMPTION_LABEL']}{' (' + suffix + ')' if suffix else ''}",
