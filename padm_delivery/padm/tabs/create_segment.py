@@ -7,13 +7,14 @@ from padm.formulas import TIMES_MAILED_BUCKETS
 
 SCOPE = "create_segment"
 DEFAULT_SOURCES = ["EXPERIAN", "TRANSUNION"]
-# Business rule (2026-11-19, from the user): Experian only has VS3/VS4; TransUnion has VS3/VS4
-# plus LIFT. CONFLICTS with an earlier finding from the real Vivian's-code ETL scripts, where
-# LIFT_SCORE was pulled only from T_EXPERIAN_MAILFILE (NULL in the TransUnion branch) -- flagged,
-# not silently resolved either way. If that turns out backwards, just swap the two lists below.
+# CONFIRMED (2026-11-19) from Credit One's own T_EXPERIAN_MAILFILE / T_TRANSUNION_MAILFILE data
+# dictionaries: LIFT_SCORE exists only in T_EXPERIAN_MAILFILE ("Emerging Consumer Risk score from
+# Experian"); T_TRANSUNION_MAILFILE has no LIFT_SCORE column anywhere. This settles an earlier
+# back-and-forth (a stated business rule briefly had this backwards) -- the data dictionary is
+# authoritative here.
 SOURCE_SCORE_TYPES = {
-    "EXPERIAN": ["VS3", "VS4"],
-    "TRANSUNION": ["VS3", "VS4", "LIFT"],
+    "EXPERIAN": ["VS3", "VS4", "LIFT"],
+    "TRANSUNION": ["VS3", "VS4"],
 }
 NONE = "— none —"
 
