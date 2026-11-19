@@ -5,22 +5,23 @@ Signature Page, Create Segment, Campaign Assumptions, Population Description,
 Segment Viewer, Signature Page 2. The selected campaign lives in
 st.session_state["campaign_id"] and is shared by every tab.
 
-STATUS (2026-11-19): this is the mobile session's PROPOSED rewrite of streamlit_app.py --
-sent as a file, NOT YET CONFIRMED applied/working against the real project. Flagged caveats
-from the mobile session itself, not yet resolved:
-  - Assumes repository.campaign_header() returns a dict with keys name/mail_date/type/version/
-    status/source_change_pending -- unverified against the real function's actual return shape.
-  - Uses get_active_session() for the Snowpark session -- assumed, not confirmed, to match the
-    real file.
-  - Uses `:material/...:` icon syntax, which needs a recent-enough Streamlit version.
-  - RESOLVED: checked padm/ui.py directly -- it defines CAMPAIGN_KEY = "campaign_id", so this
-    file's hardcoded "campaign_id" string matches exactly. No key-name mismatch.
+FIXED (2026-11-19): the prior version of this file called repository.campaign_header()
+directly and treated its return value as a dict with keys like "name"/"mail_date"/"version" --
+that function returns a raw DataFrame with real column names (CAMPAIGN_DISPLAY_NAME,
+CURRENT_WORKING_VERSION_NUMBER, etc.), so every campaign["..."] access here would have raised a
+KeyError the first time a campaign was selected. It also rendered its own header above the tabs
+while every tab *also* renders one via ui.require_campaign() -> ui.header_bar(), so campaigns
+would have shown two headers. Both fixed: campaign data now goes through ui.campaign_context()
+(the function that already builds the correct dict, proven working everywhere else in the app),
+and this file no longer renders a second, competing header -- each tab's own header stays the
+single source of truth for campaign status/version/lock state. What's new here is purely
+cosmetic: page shell, branding bar, and the landing screen.
 """
 
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
 
-from padm import repository, ui
+from padm import ui
 from padm.tabs import (
     campaign_assumptions,
     campaign_creation,
@@ -43,72 +44,52 @@ TABS = [
     ("Signature Page 2", ":material/task_alt:", signature_page_2),
 ]
 
-STATUS_COLOR = {
-    "NEW": "grey", "DRAFT": "grey", "IN_PROGRESS": "blue",
-    "PENDING_APPROVAL": "orange", "APPROVED": "green", "REJECTED": "red",
-}
-
 st.markdown("""
 <style>
-.padm-header { padding: 0.9rem 1.3rem; border-radius: 10px;
-    background: linear-gradient(135deg, #0f2744 0%, #15395e 100%); color: #fff; margin-bottom: 0.6rem; }
-.padm-header h2 { margin: 0; color: #fff; font-size: 1.35rem; }
-.padm-header .meta { opacity: 0.85; font-size: 0.9rem; margin-top: 0.15rem; }
-.padm-readonly { padding: 0.55rem 1rem; border-radius: 8px; background: #e8f5e9;
-    border: 1px solid #66bb6a; color: #1b5e20; font-weight: 600; margin-bottom: 0.6rem; }
+.padm-brand { padding: 1.1rem 1.5rem; border-radius: 14px; margin-bottom: 1rem;
+    background: linear-gradient(120deg, #0b1f3a 0%, #103a63 55%, #0e5a7a 100%);
+    box-shadow: 0 4px 18px rgba(10, 30, 60, 0.25); color: #fff; }
+.padm-brand h1 { margin: 0; font-size: 1.55rem; font-weight: 700; color: #fff; letter-spacing: 0.2px; }
+.padm-brand .sub { opacity: 0.82; font-size: 0.92rem; margin-top: 0.2rem; }
+.padm-steps { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.85rem; }
+.padm-step { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 999px; padding: 0.3rem 0.8rem; font-size: 0.82rem; color: #fff; }
+.padm-step b { opacity: 0.6; margin-right: 0.3rem; }
 div[data-testid="stTabs"] button[role="tab"] p { font-weight: 600; }
+div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
+    border-bottom: 3px solid #0e5a7a; }
 </style>
 """, unsafe_allow_html=True)
 
 
-def _header(campaign: dict) -> None:
-    status = campaign["status"]
-    badge = f":{STATUS_COLOR.get(status, 'grey')}-background[{status}]"
+def _brand_bar() -> None:
+    steps = "".join(f'<span class="padm-step"><b>{i}</b>{label}</span>' for i, (label, _, _) in enumerate(TABS, start=1))
     st.markdown(
-        f"""<div class="padm-header">
-            <h2>{campaign['name']}</h2>
-            <div class="meta">Mail Date: {campaign['mail_date']} &nbsp;·&nbsp;
-            Type: {campaign['type']} &nbsp;·&nbsp; Working Version: v{campaign['version']}</div>
+        f"""<div class="padm-brand">
+            <h1>:material/fact_check: PADM Sign-Off Dashboard</h1>
+            <div class="sub">Direct-mail credit-card campaign sign-off — replaces the manual Excel process.</div>
+            <div class="padm-steps">{steps}</div>
         </div>""",
         unsafe_allow_html=True,
     )
-    left, right = st.columns([5, 1])
-    with left:
-        st.markdown(f"**Status:** {badge}")
-    with right:
-        if st.button(":material/refresh: Refresh data", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
-    if status == "APPROVED":
-        st.markdown('<div class="padm-readonly">:material/lock: Approved — read only. No further edits are allowed.</div>',
-                     unsafe_allow_html=True)
-    if campaign.get("source_change_pending"):
-        st.warning("Source ACM data has changed since this campaign was activated. Review before proceeding.",
-                    icon=":material/sync_problem:")
 
 
 def _landing(session) -> None:
-    st.title(":material/fact_check: PADM Sign-Off Dashboard")
-    st.caption("Replaces the manual Excel sign-off process for monthly direct-mail credit-card campaigns.")
-    st.info("Select or create a campaign in **Campaign Creation** to unlock the rest of the workflow.",
+    _brand_bar()
+    st.info("Select or create a campaign below to unlock Signature Page, Create Segment, and the rest of the workflow.",
             icon=":material/arrow_forward:")
-    st.markdown("##### Workflow")
-    steps = " → ".join(label for label, _, _ in TABS)
-    st.caption(steps)
     campaign_creation.render(session)
 
 
 def main() -> None:
     session = get_active_session()
-    campaign_id = st.session_state.get("campaign_id")
-    campaign = repository.campaign_header(session, campaign_id) if campaign_id else None
+    campaign = ui.campaign_context(session)
 
     if campaign is None:
         _landing(session)
         return
 
-    _header(campaign)
-
+    _brand_bar()
     tabs = st.tabs([f"{icon} {label}" for label, icon, _ in TABS])
     for tab, (label, _, module) in zip(tabs, TABS):
         with tab:
