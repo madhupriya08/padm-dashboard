@@ -595,7 +595,7 @@ def _insert_allocations(session, campaign_id, segment_id, offer_ids, reason, met
              POPULATION_DESCRIPTION, ALLOCATION_STATUS, INITIALIZATION_METHOD, IS_CURRENT, CHANGE_REASON, ROW_VERSION)
         SELECT UUID_STRING(), C.CAMPAIGN_ID, V.OFFER_ID, ?, C.CURRENT_WORKING_VERSION_NUMBER,
                ?, 'ACTIVE', ?, TRUE, ?, 1
-        FROM (VALUES {{_values(len(offer_ids), 1)}}) AS V(OFFER_ID)
+        FROM (VALUES {_values(len(offer_ids), 1)}) AS V(OFFER_ID)
         JOIN {SCHEMA}.DM_PADM_CAMPAIGN_1 C ON C.CAMPAIGN_ID = ?
         WHERE NOT EXISTS (SELECT 1 FROM {SCHEMA}.DM_PADM_OFFER_SEGMENT_ALLOCATION A
                            WHERE A.CAMPAIGN_OFFER_ID = V.OFFER_ID AND A.SEGMENT_ID = ? AND A.IS_CURRENT = TRUE)
@@ -712,7 +712,7 @@ def edit_segment(session, campaign_id, segment_id, expected_row_version, changes
             session,
             f"""
             UPDATE {SCHEMA}.DM_PADM_SEGMENT_1
-            SET {{set_sql}}, ROW_VERSION = ROW_VERSION + 1, UPDATED_BY = CURRENT_USER(), UPDATED_TS = CURRENT_TIMESTAMP()
+            SET {set_sql}, ROW_VERSION = ROW_VERSION + 1, UPDATED_BY = CURRENT_USER(), UPDATED_TS = CURRENT_TIMESTAMP()
             WHERE SEGMENT_ID = ? AND ROW_VERSION = ?
             """,
             [*changes.values(), segment_id, int(expected_row_version)],
@@ -926,7 +926,7 @@ def save_selections(session, campaign_id, segment_id, changes, actions, reason):
             UPDATE {SCHEMA}.DM_PADM_SELECTION_WORKING W
             SET SELECTION_PERCENTAGE = V.PCT, IS_DIRTY = TRUE, INITIALIZATION_METHOD = 'USER_EDIT',
                 ROW_VERSION = W.ROW_VERSION + 1, UPDATED_BY = CURRENT_USER(), UPDATED_TS = CURRENT_TIMESTAMP()
-            FROM (VALUES {{_values(len(changes), 4)}}) AS V(TIER, BUCKET, PCT, RV)
+            FROM (VALUES {_values(len(changes), 4)}) AS V(TIER, BUCKET, PCT, RV)
             WHERE W.CAMPAIGN_ID = ? AND W.SEGMENT_ID = ?
               AND W.RESPONSE_MODEL_TIER = V.TIER AND W.TIMES_MAILED_BUCKET = V.BUCKET AND W.ROW_VERSION = V.RV
             """,
