@@ -211,11 +211,11 @@ def change_history(session, campaign_id, entity_types=None, limit=200):
     return df(
         session,
         f"""
-        SELECT CHANGED_TS, CHANGED_BY, ENTITY_TYPE, CHANGE_TYPE, CHANGE_REASON,
+        SELECT CHANGED_AT, CHANGED_BY, ENTITY_TYPE, CHANGE_TYPE, CHANGE_REASON,
                TO_VARCHAR(BEFORE_VALUE) AS BEFORE_VALUE, TO_VARCHAR(AFTER_VALUE) AS AFTER_VALUE
         FROM {SCHEMA}.DM_PADM_CHANGE_EVENT
         WHERE CAMPAIGN_ID = %(c)s {filter_sql}
-        ORDER BY CHANGED_TS DESC LIMIT %(n)s
+        ORDER BY CHANGED_AT DESC LIMIT %(n)s
         """,
         params,
     )
