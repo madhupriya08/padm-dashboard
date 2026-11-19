@@ -7,6 +7,14 @@ from padm.formulas import TIMES_MAILED_BUCKETS
 
 SCOPE = "create_segment"
 DEFAULT_SOURCES = ["EXPERIAN", "TRANSUNION"]
+# Business rule (2026-11-19, from the user): Experian only has VS3/VS4; TransUnion has VS3/VS4
+# plus LIFT. CONFLICTS with an earlier finding from the real Vivian's-code ETL scripts, where
+# LIFT_SCORE was pulled only from T_EXPERIAN_MAILFILE (NULL in the TransUnion branch) -- flagged,
+# not silently resolved either way. If that turns out backwards, just swap the two lists below.
+SOURCE_SCORE_TYPES = {
+    "EXPERIAN": ["VS3", "VS4"],
+    "TRANSUNION": ["VS3", "VS4", "LIFT"],
+}
 NONE = "— none —"
 
 # (form field, label, dropdown field in VW_PADM_SEGMENT_DROPDOWN_60D or fixed options)
@@ -62,17 +70,25 @@ def _create_form(session, campaign, offers, dropdowns):
     # no segments yet silently disappeared under the old `or` fallback (which only triggers on a
     # fully empty list). This guarantees both known sources always show.
     sources = sorted(set(repository.source_names(session)["SOURCE_NAME"].tolist()) | set(DEFAULT_SOURCES))
-    score_types = sorted(rules["SCORE_TYPE"].dropna().unique().tolist())
+    all_score_types = sorted(rules["SCORE_TYPE"].dropna().unique().tolist())
 
     st.subheader("Create segment")
-    if not score_types:
+    if not all_score_types:
         st.warning("No active score-range rules in DM_PADM_SCORE_RANGE_RULE_1 -- add one before creating segments.")
         return
     with st.container(border=True):
         st.markdown("**Mandatory fields** (*)")
         c1, c2, c3, c4 = st.columns(4)
         source = c1.selectbox("Prospect Source Bureau *", sources, key="cs_source", disabled=locked)
-        score_type = c2.selectbox("Bureau Score Type *", score_types, key="cs_score_type", disabled=locked)
+        # Score Type options are scoped to the selected Source (SOURCE_SCORE_TYPES); falls back to
+        # every active score type if the source isn't in that mapping. Key includes `source` so the
+        # widget resets cleanly instead of keeping a selection that's no longer valid for this source.
+        allowed = SOURCE_SCORE_TYPES.get(source)
+        score_types = [t for t in all_score_types if t in allowed] if allowed else all_score_types
+        if not score_types:
+            st.warning(f"No active score-range rules for {source} yet in DM_PADM_SCORE_RANGE_RULE_1.")
+            return
+        score_type = c2.selectbox("Bureau Score Type *", score_types, key=f"cs_score_type_{source}", disabled=locked)
         type_rules = rules[rules["SCORE_TYPE"] == score_type]
         lo, hi = int(type_rules["SCORE_MIN"].min()), int(type_rules["SCORE_MAX"].max())
         score_min = c3.number_input("Score Min *", min_value=0, max_value=1000, value=lo, step=1, key="cs_min", disabled=locked)
