@@ -119,6 +119,36 @@ code -- not imported by `streamlit_app.py` -- same pattern as `dashboard_build/`
 **Current working mode**: the user is debugging reactively from mobile (no DB access there) --
 run the app, report the exact error, get the exact fix, nothing broader unless asked.
 
+## 4b. Major SQL update (2026-11-19, later same day)
+
+`padm_delivery/sql/` went from 4 files to 22 (of the ~27 real files shown in the user's actual
+Snowsight file tree). Extracted via parallel transcription of the original 7 "Sql database
+queries N.pdf" + "Sql_database_queries_1.pdf" PDFs (the project's original source documents).
+Two real cross-PDF splices were done carefully (not guessed): `operational_procedures.sql`
+(now has complete `SP_PADM_ACTIVATE_CAMPAIGN`, `SP_PADM_SAVE_CAMPAIGN_ASSUMPTION`,
+`SP_PADM_ACTIVATE_CDE_VERSION`) and `calculation_views.sql` (now has the COMPLETE
+`VW_PADM_SEGMENT_CALCULATION_CURRENT`, including the MEASURES CTE and final SELECT that were
+previously cut off -- a bogus 2-line stub that a transcription fork had left in its place was
+found and replaced, not just appended to).
+
+**Still fully missing** (zero content from any source yet): `additional_procedures_and_views.sql`,
+`new_validations.sql`, `updates.sql`, `validations.sql`, `wire_credit_bureau_fields.sql`. The last
+one matters: it likely overlaps with (or supersedes) the `VW_PADM_SIGNATURE_PAGE_LIVE` fix synced
+in section 4a above -- get it before assuming that fix is the final word on Credit Bureau fields.
+
+**`DM_PADM_EMS_RATE_VERSION`** (an EMS rate table referenced by the filename `cde_ems_tables.sql`)
+was never found in any source despite being in that file -- flagged, not fabricated.
+
+**Confirmed, not guessed**: `DM_PADM_CAMPAIGN_1`'s real DDL uses the OLD status vocabulary
+(`DISCOVERED`/`DRAFT`/`READY_FOR_REVIEW`/`COMPLETED`/`REOPENED`) in its `CHECK` constraint --
+`padm_spec_alignment_01_schema.sql` (already in this repo) is presumably the migration script
+that bridges old DDL to the real running vocabulary (`NEW`/`DRAFT`/`IN_PROGRESS`/
+`PENDING_APPROVAL`/`APPROVED`/`REJECTED`). Also confirmed: a "Final sql database queries and
+documentation 1.pdf" turned out to be a documentation Excel workbook, not SQL -- its Run Order
+tab and Table dictionary are saved at `padm_delivery/docs/PADM_FINAL_DATABASE_DOCUMENTATION_excel_notes.md`,
+but that workbook itself uses the OLD status vocabulary and an unrelated file-numbering scheme --
+treat it as a useful but stale cross-reference, not current truth.
+
 ## 5. Working style that got results in the prior conversation (keep doing this)
 
 - **Never guess at SQL object names, signatures, or column names.** The user has live Snowflake
