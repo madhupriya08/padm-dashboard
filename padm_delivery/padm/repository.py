@@ -621,11 +621,11 @@ def _retire_allocations(session, campaign_id, allocation_ids, reason):
         f"""
         UPDATE {SCHEMA}.DM_PADM_OFFER_SEGMENT_ALLOCATION
         SET IS_CURRENT = FALSE, VALID_TO_TS = CURRENT_TIMESTAMP(),
-            CHANGE_REASON = %(r)s, ROW_VERSION = COALESCE(ROW_VERSION, 1) + 1,
+            CHANGE_REASON = ?, ROW_VERSION = COALESCE(ROW_VERSION, 1) + 1,
             UPDATED_BY = CURRENT_USER(), UPDATED_TS = CURRENT_TIMESTAMP()
         WHERE IS_CURRENT = TRUE AND OFFER_SEGMENT_ALLOCATION_ID IN ({", ".join(["?"] * len(allocation_ids))})
         """,
-        [str(a) for a in allocation_ids],
+        [reason, *[str(a) for a in allocation_ids]],
     )
     if rows_affected(rows, "updated") != len(allocation_ids):
         raise ProcedureError(STALE_MESSAGE)
