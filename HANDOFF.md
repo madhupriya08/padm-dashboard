@@ -131,10 +131,8 @@ Two real cross-PDF splices were done carefully (not guessed): `operational_proce
 previously cut off -- a bogus 2-line stub that a transcription fork had left in its place was
 found and replaced, not just appended to).
 
-**Still fully missing**: `updates.sql`, `validations.sql`, `wire_credit_bureau_fields.sql`. The
-last one matters: it likely overlaps with (or supersedes) the `VW_PADM_SIGNATURE_PAGE_LIVE` fix
-synced in section 4a above -- get it before assuming that fix is the final word on Credit Bureau
-fields.
+**Still fully missing**: `validations.sql` -- the user explicitly chose to skip capturing this one
+(2026-11-19), not a gap. It's the only one of the ~27 real files with zero content in this repo.
 
 **`DM_PADM_EMS_RATE_VERSION`** (an EMS rate table referenced by the filename `cde_ems_tables.sql`)
 was never found in any source despite being in that file -- flagged, not fabricated.
@@ -158,6 +156,30 @@ was never found in any source despite being in that file -- flagged, not fabrica
   newer). Saved to `padm_delivery/sql/new_validations.sql` with a transcription-confidence note at
   the top (lines 1-42, from a rotated photo, have a couple of TRANSCRIPTION UNCERTAIN inline
   comments; lines 43-94, the view DDL, are high-confidence, read from clear photos).
+
+## 4d. Final 2 real SQL files captured (2026-11-19, later same day) -- 26 of ~27 done
+
+- **`updates.sql`** -- 5 `ALTER TABLE ADD COLUMN IF NOT EXISTS` statements (2 on
+  `DM_PADM_CHANGE_EVENT` for `BEFORE_VALUE`/`AFTER_VALUE` VARIANT audit columns, 3 on
+  `DM_PADM_CAMPAIGN_OFFER`/`DM_PADM_CAMPAIGN_SOURCE_COMPONENT` for program-matching columns), a
+  verification SELECT, then an idempotent repeat of the same 3 ALTERs, then 2 cleanup `DELETE`s
+  removing orphaned `DM_PADM_CAMPAIGN_SOURCE_COMPONENT`/`_VERSION` rows with no offers attached.
+- **`wire_credit_bureau_fields.sql`** -- the file HANDOFF.md previously flagged as likely
+  overlapping the `VW_PADM_SIGNATURE_PAGE_LIVE` fix. It does NOT touch that view at all --
+  it's scoped to `DM_PADM_CAMPAIGN_OFFER` / `VW_PADM_CAMPAIGN_OFFER_CURRENT` /
+  `SP_PADM_ACTIVATE_CAMPAIGN` only (adds `CREDIT_BUREAU_MODEL`/`CREDIT_BUREAU_SCORE` columns,
+  rebuilds the view with them added after `CRS_SCORE`, updates the activate procedure to
+  populate them from `VW_PADM_ACM_OFFER_SOURCE`, backfills existing rows once, verifies).
+  **Important correction to section 4b above**: this real, currently-running procedure's code
+  (`SP_PADM_ACTIVATE_CAMPAIGN`) contains `IF (V_STATUS NOT IN ('DISCOVERED', 'REOPENED',
+  'DRAFT')) THEN` -- the OLD status vocabulary is confirmed LIVE in real procedure logic, not
+  merely in stale DDL/docs as previously assumed. Don't treat `DISCOVERED`/`REOPENED` as dead;
+  cross-check against `padm/repository.py`'s actual status-handling code before assuming the
+  spec's newer vocabulary (`NEW`/`IN_PROGRESS`/`PENDING_APPROVAL`) is what's really enforced at
+  the DB layer for activation.
+
+**`validations.sql` was explicitly skipped** at the user's request -- not pursued further unless
+they bring it up again.
 
 **Confirmed, not guessed**: `DM_PADM_CAMPAIGN_1`'s real DDL uses the OLD status vocabulary
 (`DISCOVERED`/`DRAFT`/`READY_FOR_REVIEW`/`COMPLETED`/`REOPENED`) in its `CHECK` constraint --
