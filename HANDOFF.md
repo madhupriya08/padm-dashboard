@@ -88,6 +88,37 @@ over anything else, including this handoff.
   it), treat the spec's names as correct and flag the mismatch rather than silently guessing
   which is right.
 
+## 4a. Update from mobile debugging session (2026-11-19)
+
+Got full real `padm/` package via screenshots (previously only had the unverified
+`padm_delivery/` reconstruction). Confirmed real, and applied to `padm_delivery/` in this repo:
+
+1. **`VW_PADM_SIGNATURE_PAGE_LIVE`** (`padm_delivery/sql/02_views.sql`) was missing
+   `CRS_MODEL`/`NRM` entirely and didn't join `VW_PADM_ACM_OFFER_SOURCE` at all -- the
+   reconstruction's version was a wrong guess (a thin wrapper over `VW_PADM_SIGNATURE_PAGE_ALL`
+   that doesn't match the real object). Replaced with the real, standalone view definition,
+   confirmed applied and run by the user directly in Snowsight.
+2. **`padm/repository.py`'s `signature_live()`** had a broken `ORDER BY` referencing
+   `SCORE_MIN`/`SEGMENT_NAME`/`OFFER_RESERVATION_CODE` -- none of which the view actually
+   outputs (`invalid identifier`). Fixed to order by real output columns. Confirmed applied.
+3. **`streamlit_app.py`** rewrite (header bar, status badge, landing screen) -- applied to
+   `padm_delivery/` but **NOT yet confirmed working against the real project**. One caveat
+   already resolved (checked `padm/ui.py` directly: `CAMPAIGN_KEY = "campaign_id"` matches the
+   new file's hardcoded string, no mismatch). Still unconfirmed: whether
+   `repository.campaign_header()` actually returns a dict with keys
+   `name`/`mail_date`/`type`/`version`/`status`/`source_change_pending`, and whether the
+   deployed Streamlit version supports `:material/...:` icons.
+
+Still open, unchanged from before: Selection % "no prior month" check (query given, not yet
+run), `MLA` field removal in Create Segment, offer-allocation defaulting to previous offers
+(`repository.suggested_offers()` already exists for this), a Campaign Assumptions
+segment-lookup complaint (unconfirmed root cause), the 3-month purge `TASK` (still not found
+anywhere in any SQL file shared so far). `app/` in the real Snowsight project is confirmed dead
+code -- not imported by `streamlit_app.py` -- same pattern as `dashboard_build/` in this repo.
+
+**Current working mode**: the user is debugging reactively from mobile (no DB access there) --
+run the app, report the exact error, get the exact fix, nothing broader unless asked.
+
 ## 5. Working style that got results in the prior conversation (keep doing this)
 
 - **Never guess at SQL object names, signatures, or column names.** The user has live Snowflake

@@ -244,11 +244,14 @@ def previous_campaign(session, campaign_id):
 # ===========================================================================
 
 def signature_live(session, campaign_id):
+    # CONFIRMED REAL (2026-11-19): the reconstruction's ORDER BY referenced SCORE_MIN /
+    # SEGMENT_NAME / OFFER_RESERVATION_CODE -- none of which are columns VW_PADM_SIGNATURE_PAGE_LIVE
+    # actually outputs (would throw "invalid identifier"). Fixed to order by real output columns.
     return df(
         session,
         f"""
         SELECT * FROM {SCHEMA}.VW_PADM_SIGNATURE_PAGE_LIVE WHERE CAMPAIGN_ID = %(c)s
-        ORDER BY ANNUAL_FEE, SCORE_MIN NULLS LAST, SEGMENT_NAME NULLS LAST, OFFER_RESERVATION_CODE
+        ORDER BY ANNUAL_FEE, POPULATION_DESCRIPTION NULLS LAST, SEGMENT_DESCRIPTION NULLS LAST, CAMPAIGN_OFFER_ID
         """,
         {"c": campaign_id},
     )
