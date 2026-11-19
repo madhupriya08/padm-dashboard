@@ -194,9 +194,9 @@ def render_grid(cells, title, value_col, fmt, caption, ratio=None, extra_row=Non
             shown = grid.copy().astype(object)
             shown = shown.apply(lambda col: col.map(lambda v: _grid_cell_text(v, fmt)))
             shown.loc[label] = [_grid_cell_text(v, row_fmt) for v in values.reindex(grid.columns)]
-            st.dataframe(shown, height=grid_height(shown), key=key)
+            st.dataframe(shown, height=grid_height(shown), key=key, use_container_width=False)
         else:
-            st.dataframe(styled(grid, fmt), height=grid_height(grid), key=key)
+            st.dataframe(styled(grid, fmt), height=grid_height(grid), key=key, use_container_width=False)
         return grid
 
 
@@ -374,4 +374,5 @@ def render_signature_page(rows, key, mask_calculated=False, group_by_population=
         weight = "font-weight: bold" if text.startswith(("Sub-total", "GRAND TOTAL", ">")) else ""
         return [weight] * len(row)
 
-    st.dataframe(frame.style.apply(bold, axis=1), hide_index=True, column_config=config, key=key)
+    st.dataframe(frame.style.apply(bold, axis=1), hide_index=True, column_config=config, key=key,
+                 use_container_width=False)

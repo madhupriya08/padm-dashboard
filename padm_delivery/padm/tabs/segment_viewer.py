@@ -165,7 +165,7 @@ def _cde_section(session, campaign, segment):
             st.error("No valid cells in this file.")
             return
         preview = cells.pivot_table(index="TRM10_TIER", columns="TIMES_MAILED_BUCKET", values="DISTINCT_EPIN_COUNT", aggfunc="sum", fill_value=0)
-        st.dataframe(preview[[c for c in TIMES_MAILED_BUCKETS if c in preview.columns]])
+        st.dataframe(preview[[c for c in TIMES_MAILED_BUCKETS if c in preview.columns]], use_container_width=False)
         st.caption(f"{len(cells)} of {total} cell(s) valid · total volume {cells['DISTINCT_EPIN_COUNT'].sum():,.0f}")
         band = f"{int(segment['SCORE_MIN'])}_{int(segment['SCORE_MAX'])}"
         reason = ui.reason_input(f"sv_cde_reason_{campaign['id']}_{segment_id}")
@@ -217,7 +217,7 @@ def _selection_section(session, campaign, segment_id):
 
     edited = st.data_editor(
         state["grid"], key=f"sv_editor_{cid}_{segment_id}_{state['nonce']}", disabled=locked,
-        height=ui.grid_height(state["grid"]),
+        height=ui.grid_height(state["grid"]), use_container_width=False,
         column_config={c: st.column_config.NumberColumn(c, min_value=0.0, max_value=100.0, step=0.01, format="%.2f%%")
                        for c in state["grid"].columns},
     )
@@ -272,7 +272,7 @@ def _selection_section(session, campaign, segment_id):
     highlight[is_saved_nonzero] = GREEN
     highlight[is_unsaved] = BLUE
     st.dataframe(state["grid"].style.format("{:.2f}%").apply(lambda _: highlight, axis=None),
-                 height=ui.grid_height(state["grid"]), key=f"sv_sel_view_{cid}_{segment_id}")
+                 height=ui.grid_height(state["grid"]), key=f"sv_sel_view_{cid}_{segment_id}", use_container_width=False)
 
     # Diff against the stored working grid.
     lookup = working.assign(TIMES_MAILED_BUCKET=working["TIMES_MAILED_BUCKET"].astype(str)) \
