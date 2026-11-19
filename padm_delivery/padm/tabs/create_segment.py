@@ -7,14 +7,15 @@ from padm.formulas import TIMES_MAILED_BUCKETS
 
 SCOPE = "create_segment"
 DEFAULT_SOURCES = ["EXPERIAN", "TRANSUNION"]
-# CONFIRMED (2026-11-19) from Credit One's own T_EXPERIAN_MAILFILE / T_TRANSUNION_MAILFILE data
-# dictionaries: LIFT_SCORE exists only in T_EXPERIAN_MAILFILE ("Emerging Consumer Risk score from
-# Experian"); T_TRANSUNION_MAILFILE has no LIFT_SCORE column anywhere. This settles an earlier
-# back-and-forth (a stated business rule briefly had this backwards) -- the data dictionary is
-# authoritative here.
+# LIFT shown for both bureaus per the user's explicit call (2026-11-19) -- note Credit One's own
+# T_EXPERIAN_MAILFILE / T_TRANSUNION_MAILFILE data dictionaries show LIFT_SCORE existing only in
+# T_EXPERIAN_MAILFILE (T_TRANSUNION_MAILFILE has no LIFT_SCORE column). Showing LIFT here for
+# TransUnion is a UI-only choice for now -- no DM_PADM_SCORE_RANGE_RULE_1 bands exist for
+# TRANSUNION + LIFT yet, so selecting it will hit the "no active score-range rules" warning until
+# those rows are added.
 SOURCE_SCORE_TYPES = {
     "EXPERIAN": ["VS3", "VS4", "LIFT"],
-    "TRANSUNION": ["VS3", "VS4"],
+    "TRANSUNION": ["VS3", "VS4", "LIFT"],
 }
 NONE = "— none —"
 
