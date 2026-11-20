@@ -257,6 +257,69 @@ def signature_live(session, campaign_id):
     )
 
 
+def pre_signature_detail(session, campaign_id):
+    """Current Total Available Volume / Quantity / Owner-Approver for this campaign's offers."""
+    return df(
+        session,
+        f"""
+        SELECT CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY, OWNER_APPROVER
+        FROM {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL WHERE CAMPAIGN_ID = %(c)s AND IS_CURRENT = TRUE
+        """,
+        {"c": campaign_id},
+    )
+
+
+def previous_pre_signature_detail(session, campaign_id):
+    """Same 3 fields from the previous campaign, keyed by OFFER_RESERVATION_CODE so they can be
+    matched to this campaign's offers even though CAMPAIGN_OFFER_ID is a fresh snapshot each
+    campaign. Empty frame if there's no previous campaign."""
+    prior = previous_campaign(session, campaign_id)
+    if prior.empty:
+        return pd.DataFrame()
+    return df(
+        session,
+        f"""
+        SELECT O.OFFER_RESERVATION_CODE, D.TOTAL_AVAILABLE_VOLUME, D.QUANTITY, D.OWNER_APPROVER
+        FROM {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL AS D
+        JOIN {SCHEMA}.DM_PADM_CAMPAIGN_OFFER AS O ON O.CAMPAIGN_OFFER_ID = D.CAMPAIGN_OFFER_ID
+        WHERE D.CAMPAIGN_ID = %(p)s AND D.IS_CURRENT = TRUE
+        """,
+        {"p": prior.iloc[0]["CAMPAIGN_ID"]},
+    )
+
+
+def save_pre_signature_detail(session, campaign_id, rows, reason):
+    """rows: [{CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY, OWNER_APPROVER}, ...].
+    Soft-versions: retires the current row for each offer, inserts a new one."""
+    _assert_editable(session, campaign_id)
+    if not rows:
+        return "Nothing to save."
+    with transaction(session):
+        offer_ids = [str(r["CAMPAIGN_OFFER_ID"]) for r in rows]
+        exec_sql(
+            session,
+            f"""
+            UPDATE {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL
+            SET IS_CURRENT = FALSE, VALID_TO_TS = CURRENT_TIMESTAMP()
+            WHERE CAMPAIGN_ID = ? AND CAMPAIGN_OFFER_ID IN ({", ".join(["?"] * len(offer_ids))}) AND IS_CURRENT = TRUE
+            """,
+            [campaign_id, *offer_ids],
+        )
+        for r in rows:
+            exec_sql(
+                session,
+                f"""
+                INSERT INTO {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL
+                    (PRE_SIGNATURE_DETAIL_ID, CAMPAIGN_ID, CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME,
+                     QUANTITY, OWNER_APPROVER, IS_CURRENT, CHANGE_REASON)
+                SELECT UUID_STRING(), %(c)s, %(o)s, %(v)s, %(q)s, %(a)s, TRUE, %(r)s
+                """,
+                {"c": campaign_id, "o": r["CAMPAIGN_OFFER_ID"], "v": r["TOTAL_AVAILABLE_VOLUME"],
+                 "q": r["QUANTITY"], "a": r["OWNER_APPROVER"], "r": reason},
+            )
+    return f"Saved tracking fields for {len(rows)} offer(s)."
+
+
 def snapshot_versions(session, campaign_id):
     return df(
         session,
