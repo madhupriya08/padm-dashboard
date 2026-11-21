@@ -1,11 +1,6 @@
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 
--- =============================================================================================
--- operational_procedures.sql
--- =============================================================================================
--- SP_PADM_ACTIVATE_CAMPAIGN, SP_PADM_SAVE_CAMPAIGN_ASSUMPTION, SP_PADM_ACTIVATE_CDE_VERSION.
-
 SHOW PROCEDURES LIKE 'SP_PADM_%'
 IN SCHEMA DB_RISK.RISK_SBX;
 
@@ -122,7 +117,6 @@ BEGIN
         OR (:V_CAMPAIGN_TYPE = 'REMAIL' AND UPPER(TRIM(SOURCE_CAMPAIGN_GROUP_CODE)) IN ('MAP', 'PAREMAIL'))
       );
 
-
     INSERT INTO DM_PADM_CAMPAIGN_SOURCE_COMPONENT
     (
           CAMPAIGN_SOURCE_COMPONENT_ID
@@ -225,11 +219,7 @@ BEGIN
         , S.ACM_SEGMENT_NAME
         , S.TEST_TYPE
         , S.SOURCE_CPP
-        -- TRANSCRIPTION UNCERTAIN: the photographed screen showed the SELECT-list here as
-        -- S.PROMO and S.IVR (not S.PROMO_CODE / S.APPROVAL_CODE, which would match the target
-        -- column names above one-for-one). Kept verbatim rather than "corrected" to the
-        -- expected names, since this may be a real column-name difference in the source view
-        -- rather than an OCR slip -- confirm against the live VW_PADM_ACM_OFFER_SOURCE DDL.
+
         , S.PROMO
         , S.IVR
         , S.UNDERWRITING_FLAG
@@ -504,35 +494,6 @@ EXCEPTION WHEN OTHER THEN ROLLBACK; RAISE;
 END;
 $$;
 
--- TRANSCRIPTION CUT OFF HERE: file continues past this point (line ~495+), not captured
--- in this pass.
-
--- =============================================================================================
--- additional_procedures_and_views.sql
--- =============================================================================================
--- Gap-fill script for padm_phase1 (DB_RISK.RISK_SBX).
--- Run after the existing sql/*.sql scripts. Idempotent (CREATE OR REPLACE throughout).
---
--- Gaps closed, found by cross-checking the existing schema against the sign-off proposal,
--- the handwritten scope notes, and PADM_CLARIFICATIONS:
---   1. No procedure existed to save SEGMENT-level assumption overrides (only campaign-level
---      SP_PADM_SAVE_CAMPAIGN_ASSUMPTION was built).
---   2. No procedure existed to persist the Segment Viewer selection grid (DM_PADM_SELECTION_WORKING)
---      into an immutable DM_PADM_SELECTION_SET / SELECTION_SET_CELL + audit event.
---   3. (Originally thought missing -- it is NOT.) Workflow transitions are already enforced by
---      your pre-existing SP_PADM_TRANSITION_CAMPAIGN(campaign_id, to_status, reason, comment),
---      confirmed from PADM_Final_Database_Documentation's Procedures tab. No new object needed.
---   4. Nothing populated DM_PADM_CALCULATION_RUN / DM_PADM_CALCULATION_CELL at all, even though
---      signature_page_2_snapshot.sql requires a COMPLETED calculation run to exist.
---   5. signature_page_2_snapshot.sql was a bare INSERT...SELECT template (no version numbering,
---      no guard against a non-completed run). Wrapped it in a procedure.
---   6. No live (pre-snapshot) view existed for the Signature Page / Signature Page 2 preview --
---      added VW_PADM_SIGNATURE_PAGE_LIVE, same grain/formulas as the existing snapshot INSERT.
-
-
--- ===========================================================================================
--- 1. Segment-level assumption save (mirrors SP_PADM_SAVE_CAMPAIGN_ASSUMPTION)
--- ===========================================================================================
 CREATE OR REPLACE PROCEDURE SP_PADM_SAVE_SEGMENT_ASSUMPTION(
     P_CAMPAIGN_ID VARCHAR,
     P_SEGMENT_ID VARCHAR,
@@ -603,9 +564,6 @@ EXCEPTION
 END;
 $$;
 
--- ===========================================================================================
--- 2. Persist the Segment Viewer selection grid into an immutable Selection Set + audit event.
--- ===========================================================================================
 CREATE OR REPLACE PROCEDURE SP_PADM_SAVE_SELECTION_SET(
     P_CAMPAIGN_ID VARCHAR,
     P_SEGMENT_ID VARCHAR,
@@ -674,21 +632,6 @@ EXCEPTION
 END;
 $$;
 
--- ===========================================================================================
--- 3. (Removed.) Workflow status transitions are already handled by your own, pre-existing
---    SP_PADM_TRANSITION_CAMPAIGN(P_CAMPAIGN_ID, P_TO_STATUS, P_REASON, P_COMMENT) -- confirmed
---    from PADM_Final_Database_Documentation's Procedures tab (Inputs: "Campaign ID, target
---    status, reason, comment"; Purpose: "Enforces allowed status path"). An earlier pass of
---    this file invented a redundant SP_PADM_TRANSITION_CAMPAIGN_STATUS(3 params, no comment)
---    that duplicated this under a different name -- removed. Call your real
---    SP_PADM_TRANSITION_CAMPAIGN directly (see app/repository.py transition_campaign()).
--- ===========================================================================================
-
--- ===========================================================================================
--- 4. Calculation run: snapshots the live VW_PADM_SEGMENT_CALCULATION_CURRENT formulas into
---    DM_PADM_CALCULATION_RUN / DM_PADM_CALCULATION_CELL. Required before Signature Page 2 can
---    be generated (signature_page_2_snapshot.sql joins to a COMPLETED calculation run).
--- ===========================================================================================
 CREATE OR REPLACE PROCEDURE SP_PADM_RUN_CALCULATION(
     P_CAMPAIGN_ID VARCHAR
 )
@@ -764,10 +707,6 @@ EXCEPTION
 END;
 $$;
 
--- ===========================================================================================
--- 5. Signature Page 2: wraps the existing bare INSERT...SELECT (signature_page_2_snapshot.sql)
---    with next-version numbering and a guard so it only runs against a COMPLETED calc run.
--- ===========================================================================================
 CREATE OR REPLACE PROCEDURE SP_PADM_GENERATE_SIGNATURE_PAGE_2(
     P_CAMPAIGN_ID VARCHAR,
     P_CALCULATION_RUN_ID VARCHAR
@@ -858,25 +797,6 @@ EXCEPTION
 END;
 $$;
 
--- ===========================================================================================
--- 6. Live (pre-snapshot) view for the Signature Page tab and the Signature Page 2 live preview.
---    Same grain/formulas as the snapshot INSERT above, as a plain SELECT (no write).
---
---    NOTE: CREDIT_BUREAU_MODEL / CREDIT_BUREAU_SCORE / CRS_MODEL / NRM now come from
---    O.CREDIT_BUREAU_MODEL/SCORE/CRS_MODEL/NRM (i.e. VW_PADM_CAMPAIGN_OFFER_CURRENT), which
---    only carry real values once sql/30_wire_credit_bureau_fields.sql has been run (it adds
---    these 4 columns to DM_PADM_CAMPAIGN_OFFER, updates VW_PADM_CAMPAIGN_OFFER_CURRENT, and
---    updates SP_PADM_ACTIVATE_CAMPAIGN to populate them from VW_PADM_ACM_OFFER_SOURCE, which
---    already exposes all 4). Run 30_... before/with this file, or these will be NULL until applied.
---
---    SUPERSEDED: the real, live view in Snowsight (see new_validations.sql, which also records
---    it was replaced because the version below had "WRONG JOINS") instead LEFT JOINs
---    VW_PADM_ACM_OFFER_SOURCE directly (alias SRC) on OFFER_RESERVATION_CODE, takes CRS_MODEL/NRM
---    from SRC (not O), and COALESCEs NETWORK/ANNUAL_FEE_YR1/YR2 between SRC and T_ACM_PROGRAMS (P).
---    That corrected version is already applied in padm_delivery/sql/deploy/02_views.sql -- this
---    copy's VW_PADM_SIGNATURE_PAGE_LIVE below is kept only for historical context;
---    deploy/02_views.sql is the one that matters.
--- ===========================================================================================
 CREATE OR REPLACE VIEW VW_PADM_SIGNATURE_PAGE_LIVE AS
 WITH TIMES_MAILED_0 AS (
     SELECT CAMPAIGN_OFFER_ID,
@@ -927,13 +847,8 @@ GROUP BY A.CAMPAIGN_ID, A.CAMPAIGN_OFFER_ID, A.SEGMENT_ID, A.POPULATION_DESCRIPT
          P.ANNUAL_FEE_YR2, O.PROMO_CODE, O.APPROVAL_CODE, O.UNDERWRITING_FLAG, O.PROSPECT_TYPE,
          O.PRINT_VENDOR_ID, T0.TIMES_MAILED_0_PERCENTAGE;
 
--- ===========================================================================================
--- Post-deployment check: confirms the 4 new procs + 1 new view exist (SP_PADM_TRANSITION_CAMPAIGN
--- is pre-existing and not created here -- see note above).
--- ===========================================================================================
 SELECT 'SP_PADM_SAVE_SEGMENT_ASSUMPTION' AS OBJECT_NAME, COUNT(*) AS FOUND FROM INFORMATION_SCHEMA.PROCEDURES WHERE PROCEDURE_NAME = 'SP_PADM_SAVE_SEGMENT_ASSUMPTION'
 UNION ALL SELECT 'SP_PADM_SAVE_SELECTION_SET', COUNT(*) FROM INFORMATION_SCHEMA.PROCEDURES WHERE PROCEDURE_NAME = 'SP_PADM_SAVE_SELECTION_SET'
 UNION ALL SELECT 'SP_PADM_RUN_CALCULATION', COUNT(*) FROM INFORMATION_SCHEMA.PROCEDURES WHERE PROCEDURE_NAME = 'SP_PADM_RUN_CALCULATION'
 UNION ALL SELECT 'SP_PADM_GENERATE_SIGNATURE_PAGE_2', COUNT(*) FROM INFORMATION_SCHEMA.PROCEDURES WHERE PROCEDURE_NAME = 'SP_PADM_GENERATE_SIGNATURE_PAGE_2'
 UNION ALL SELECT 'VW_PADM_SIGNATURE_PAGE_LIVE', COUNT(*) FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_NAME = 'VW_PADM_SIGNATURE_PAGE_LIVE';
--- Expected: FOUND = 1 for every row above.

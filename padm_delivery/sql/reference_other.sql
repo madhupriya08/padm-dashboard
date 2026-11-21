@@ -1,12 +1,6 @@
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 
--- =============================================================================================
--- 00_context.sql
--- =============================================================================================
--- CREATE TABLE IF NOT EXISTS did not change older tables that already existed.
--- Add the columns required by the final procedures without dropping existing data.
-
 ALTER TABLE DM_PADM_CHANGE_EVENT
 ADD COLUMN IF NOT EXISTS BEFORE_VALUE VARIANT;
 
@@ -22,7 +16,6 @@ ADD COLUMN IF NOT EXISTS MATCHED_PROGRAM_VERSION_NUMBER NUMBER(10,0);
 ALTER TABLE DM_PADM_CAMPAIGN_SOURCE_COMPONENT
 ADD COLUMN IF NOT EXISTS SOURCE_CAMPAIGN_IDENTIFICATION_CODE VARCHAR;
 
--- Verify the required columns now exist.
 SELECT
       TABLE_NAME
     , COLUMN_NAME
@@ -41,19 +34,15 @@ WHERE TABLE_SCHEMA = 'RISK_SBX'
   )
 ORDER BY TABLE_NAME, COLUMN_NAME;
 
--- Align the campaign offer snapshot with the ACM offer source view.
 ALTER TABLE DM_PADM_CAMPAIGN_OFFER
 ADD COLUMN IF NOT EXISTS PROGRAM_MATCH_STATUS VARCHAR;
 
 ALTER TABLE DM_PADM_CAMPAIGN_OFFER
 ADD COLUMN IF NOT EXISTS MATCHED_PROGRAM_VERSION_NUMBER NUMBER(10,0);
 
--- Preserve the source identification code at source-component grain.
 ALTER TABLE DM_PADM_CAMPAIGN_SOURCE_COMPONENT
 ADD COLUMN IF NOT EXISTS SOURCE_CAMPAIGN_IDENTIFICATION_CODE VARCHAR;
 
--- Remove partial source snapshots created by failed activation attempts.
--- Only incomplete versions without offers are removed.
 DELETE FROM DM_PADM_CAMPAIGN_SOURCE_COMPONENT AS C
 WHERE EXISTS
 (
@@ -76,9 +65,6 @@ WHERE NOT EXISTS
         WHERE O.CAMPAIGN_SOURCE_VERSION_ID = V.CAMPAIGN_SOURCE_VERSION_ID
     );
 
--- =============================================================================================
--- activation_and_validations.sql
--- =============================================================================================
 EXECUTE IMMEDIATE $$
 DECLARE
     V_CAMPAIGN_ID VARCHAR;
@@ -110,14 +96,12 @@ BEGIN
 END;
 $$;
 
--- Expected: no rows.
 SELECT CAMPAIGN_ID, COUNT(*) AS CURRENT_VERSION_COUNT
 FROM DM_PADM_CAMPAIGN_SOURCE_VERSION
 WHERE IS_CURRENT = TRUE
 GROUP BY CAMPAIGN_ID
 HAVING COUNT(*) <> 1;
 
--- Expected: no rows for January through April 2026.
 SELECT C.CAMPAIGN_ID, C.REPORTING_MONTH, C.CAMPAIGN_TYPE
 FROM DM_PADM_CAMPAIGN_1 AS C
 LEFT JOIN DM_PADM_CAMPAIGN_SOURCE_VERSION AS V
@@ -206,20 +190,6 @@ GROUP BY
 ORDER BY
       C.REPORTING_MONTH
     , C.CAMPAIGN_TYPE;
-
--- =============================================================================================
--- campaign_load_templates.sql
--- =============================================================================================
--- This is the real discover_campaign() MERGE that padm/repository.py's discover_campaign calls
--- into, including the plural/singular SOURCE_CAMPAIGN_IDENTIFICATION_CODES mapping.
---
--- NOTE: uses the OLD status vocabulary (DISCOVERED/DRAFT/COMPLETED/REOPENED) -- see
--- campaign_and_offer_tables.sql's note. Pre-migration.
-
-
--- Discover one campaign for each reporting month and campaign type.
--- Source identification codes are retained in source-component tables during activation.
--- They are intentionally not loaded into the campaign parent in this discovery step.
 
 MERGE INTO DM_PADM_CAMPAIGN_1 AS T
 USING
@@ -331,7 +301,6 @@ VALUES
     , CURRENT_TIMESTAMP()
 );
 
--- Review discovered campaigns.
 SELECT
       CAMPAIGN_ID
     , REPORTING_MONTH
@@ -349,7 +318,6 @@ ORDER BY
       REPORTING_MONTH DESC
     , CAMPAIGN_TYPE;
 
--- Expected result: no rows.
 SELECT
       REPORTING_MONTH
     , CAMPAIGN_TYPE
@@ -359,13 +327,6 @@ GROUP BY
       REPORTING_MONTH
     , CAMPAIGN_TYPE
 HAVING COUNT(*) > 1;
-
--- =============================================================================================
--- changes.sql
--- =============================================================================================
--- Real filename in the Snowsight tree is "changes.sql" despite the content below being the
--- core VW_PADM_SEGMENT_CALCULATION_CURRENT view, not column-diff "changes" -- kept as-is to
--- match the real tree.
 
 ALTER TABLE DM_PADM_CAMPAIGN_OFFER
 ADD COLUMN IF NOT EXISTS
@@ -404,11 +365,6 @@ ALTER TABLE DM_PADM_CDE_DETAIL
 ADD COLUMN IF NOT EXISTS
     SOURCE_ROW_NUMBER NUMBER(38,0);
 
--- =============================================================================================
--- VW_PADM_SEGMENT_CALCULATION_CURRENT -- the core per-segment calculation view. Confirms the
--- 3-level fallback (exact cell -> segment+campaign-type -> campaign-level default) via chained
--- LEFT JOIN + COALESCE, exactly as the spec requires (section 7.8).
--- =============================================================================================
 CREATE OR REPLACE VIEW VW_PADM_SEGMENT_CALCULATION_CURRENT AS
 WITH GRID AS
 (
@@ -620,8 +576,6 @@ SELECT
     , M.UNWIND_SOURCE
 FROM MEASURES AS M;
 
--- Confirm the new fields exist.
--- Expected: five rows.
 SELECT
       ORDINAL_POSITION
     , COLUMN_NAME
@@ -631,15 +585,10 @@ WHERE TABLE_SCHEMA = 'RISK_SBX'
   AND TABLE_NAME = 'VW_PADM_SEGMENT_CALCULATION_CURRENT'
   AND COLUMN_NAME IN
   (
-        -- UNCERTAIN: the exact 5 column names in this IN-list are unconfirmed -- almost
-        -- certainly the 5 newest measure columns (NRR_SOURCE, UNWIND_SOURCE, SELECTED_NRR,
-        -- POST_UNWIND_CPA_UNIVERSE, POST_UNWIND_CPA_SELECTED), but not verified verbatim.
-        -- This is just a post-deployment check query, not load-bearing logic.
+
   )
 ORDER BY ORDINAL_POSITION;
 
--- Validate Effective NRR.
--- Expected: no rows.
 SELECT
       CAMPAIGN_ID
     , SEGMENT_ID
@@ -661,8 +610,6 @@ WHERE ABS
         )
     ) > 0.000001;
 
--- Validate Effective Unwind Rate.
--- Expected: no rows.
 SELECT
       CAMPAIGN_ID
     , SEGMENT_ID
@@ -681,17 +628,6 @@ WHERE ABS
             * (1 + COALESCE(EFFECTIVE_UNWIND_RATE_ADJUSTMENT, 0))
         )
     ) > 0.000001;
--- [Full file confirmed complete through line 315 / EOF of the real file.]
-
--- =============================================================================================
--- new_validations.sql
--- =============================================================================================
--- This is a debugging/scratch file (not a deployment script): it contains ad hoc SELECT/DESC
--- exploration queries against the live schema, 3 one-time DROP TABLEs, and -- importantly --
--- the record of VW_PADM_SIGNATURE_PAGE_LIVE (and _ALL) being flagged "WRONG JOINS" (line 31-32)
--- followed by the corrected CREATE OR REPLACE VIEW that fixes it. That same corrected view is
--- already live in padm_delivery/sql/deploy/02_views.sql.
-
 
 SELECT TABLE_NAME, TABLE_TYPE, ROW_COUNT
 FROM DB_RISK.INFORMATION_SCHEMA.TABLES
@@ -704,33 +640,31 @@ DROP TABLE DM_PADM_TR_MAILFILE_NORMALIZED;
 
 select * from VW_PADM_CAMPAIGN_OFFER_CURRENT;
 select * from DM_PADM_CAMPAIGN_ASSUMPTION_CANDIDATE;
-select * from CAMPAIGN_SOURCE_OFFER_SOURCE where SOURCE_CAMPAIGN_NAME LIKE 'APRIL%2026%'; -- check on this has crs model, NRM, CPP(FROM OFFERS), UNDERWRITING, PROSPECT TYPE FLAG
+select * from CAMPAIGN_SOURCE_OFFER_SOURCE where SOURCE_CAMPAIGN_NAME LIKE 'APRIL%2026%';
 desc table VW_PADM_ACM_OFFER_SOURCE;
 
-SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_CAMPAIGN_ASSUMPTION_CURRENT; -- it has UPDATED_TS
-SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_CAMPAIGN_LIST; -- MAKE SURE TO MARK THESE ARE THOSE SINCE COMPLETED CAMPAIGNS......IT ACTUALLY SHOULD BE READ ONLY
+SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_CAMPAIGN_ASSUMPTION_CURRENT;
+SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_CAMPAIGN_LIST;
 SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_CAMPAIGN_OFFER_SOURCE;
 SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_CAMPAIGN_CURRENT;
-SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_CDE_DETAIL_CURRENT; --EMPTY
-SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_CDE_GRID_CURRENT; --EMPTY
-SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_SEGMENT_EFFECTIVE_ASSUMPTION; --EMPTY
-SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_NRR_CURRENT;----EMPTY
+SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_CDE_DETAIL_CURRENT;
+SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_CDE_GRID_CURRENT;
+SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_SEGMENT_EFFECTIVE_ASSUMPTION;
+SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_NRR_CURRENT;
 SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_NRR_DEFAULTS;
-DESC TABLE VW_PADM_SELECTION_CURRENT;--HAS DATA
+DESC TABLE VW_PADM_SELECTION_CURRENT;
 SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_SEGMENT_ASSUMPTION_CURRENT;
 SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_SEGMENT_CALCULATION_CURRENT;
 SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_SELECTION_CURRENT;
-SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_SIGNATURE_PAGE_ALL; --WRONG JOINS
-SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_SIGNATURE_PAGE_LIVE; --WRONG JOINS
+SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_SIGNATURE_PAGE_ALL;
+SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_SIGNATURE_PAGE_LIVE;
 SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_UNWIND_CURRENT;
 SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_UNWIND_DEFAULTS;
 SELECT * FROM DB_RISK.RISK_SBX.VW_PADM_UNWIND_SEGMENT_FALLBACK;
 
-
 select * from DM_PADM_OFFER_SEGMENT_ALLOCATION;
 desc table VW_PADM_CAMPAIGN_OFFER_CURRENT;
 desc view VW_PADM_SIGNATURE_PAGE_LIVE;
-
 
 CREATE OR REPLACE VIEW VW_PADM_SIGNATURE_PAGE_LIVE AS
 WITH TIMES_MAILED_0 AS (
@@ -784,10 +718,6 @@ GROUP BY A.CAMPAIGN_ID, A.CAMPAIGN_OFFER_ID, A.SEGMENT_ID, A.POPULATION_DESCRIPT
          SRC.NRM, SRC.ANNUAL_FEE_YR1, P.ANNUAL_FEE_YR1, SRC.ANNUAL_FEE_YR2, P.ANNUAL_FEE_YR2, O.PROMO_CODE,
          O.APPROVAL_CODE, O.UNDERWRITING_FLAG, O.PROSPECT_TYPE, O.PRINT_VENDOR_ID, T0.TIMES_MAILED_0_PERCENTAGE;
 
--- =============================================================================================
--- post_deployment_validations.sql
--- =============================================================================================
--- Check that all required tables exist.
 WITH EXPECTED_TABLE AS
 (
       SELECT COLUMN1 AS TABLE_NAME
@@ -831,7 +761,6 @@ LEFT JOIN DB_RISK.INFORMATION_SCHEMA.TABLES AS T
        AND T.TABLE_NAME = E.TABLE_NAME
 WHERE T.TABLE_NAME IS NULL;
 
--- Check that all required views exist.
 WITH EXPECTED_VIEW AS
 (
       SELECT COLUMN1 AS VIEW_NAME
@@ -856,7 +785,6 @@ LEFT JOIN DB_RISK.INFORMATION_SCHEMA.VIEWS AS V
        AND V.TABLE_NAME = E.VIEW_NAME
 WHERE V.TABLE_NAME IS NULL;
 
--- Check campaign candidates by month and type.
 SELECT
       REPORTING_MONTH
     , CAMPAIGN_TYPE
@@ -867,7 +795,6 @@ GROUP BY
     , CAMPAIGN_TYPE
 HAVING COUNT(*) > 1;
 
--- Check that candidate offers are unique within the source campaign.
 SELECT
       SOURCE_CAMPAIGN_IDENTIFICATION_CODE
     , OFFER_RESERVATION_CODE
@@ -878,7 +805,6 @@ GROUP BY
     , OFFER_RESERVATION_CODE
 HAVING COUNT(*) > 1;
 
--- Confirm the Program join did not multiply source offers.
 SELECT
       SOURCE_CAMPAIGN_IDENTIFICATION_CODE
     , OFFER_RESERVATION_CODE
@@ -893,7 +819,6 @@ GROUP BY
     , PROGRAM_VERSION_NUMBER
 HAVING COUNT(*) > 1;
 
--- Confirm there is no more than one current source version for a campaign.
 SELECT
       CAMPAIGN_ID
     , COUNT(*) AS CURRENT_VERSION_COUNT
@@ -902,7 +827,6 @@ WHERE IS_CURRENT = TRUE
 GROUP BY CAMPAIGN_ID
 HAVING COUNT(*) > 1;
 
--- Confirm there is no more than one current campaign assumption version.
 SELECT
       CAMPAIGN_ID
     , COUNT(*) AS CURRENT_VERSION_COUNT
@@ -911,7 +835,6 @@ WHERE IS_CURRENT = TRUE
 GROUP BY CAMPAIGN_ID
 HAVING COUNT(*) > 1;
 
--- Confirm there is no more than one current Segment override version.
 SELECT
       CAMPAIGN_ID
     , SEGMENT_ID
@@ -923,7 +846,6 @@ GROUP BY
     , SEGMENT_ID
 HAVING COUNT(*) > 1;
 
--- Check active CDE version uniqueness.
 SELECT
       CAMPAIGN_ID
     , SEGMENT_ID
@@ -935,7 +857,6 @@ GROUP BY
     , SEGMENT_ID
 HAVING COUNT(*) > 1;
 
--- Check calculation formulas after data is loaded.
 SELECT
       CAMPAIGN_ID
     , SEGMENT_ID
@@ -966,7 +887,6 @@ WHERE ABS
           - ROUND(POST_EMS_VOLUME * SELECTION_PERCENTAGE, 0)
       ) > 0.000001;
 
--- This summary should be reviewed after the discovery merge.
 SELECT
       CAMPAIGN_YEAR
     , CAMPAIGN_MONTH
@@ -981,15 +901,6 @@ FROM DM_PADM_CAMPAIGN_1
 ORDER BY
       REPORTING_MONTH
     , CAMPAIGN_TYPE;
-
--- =============================================================================================
--- signature_page_2_snapshot.sql
--- =============================================================================================
--- This template creates an immutable Signature Page 2 snapshot.
--- The application supplies Campaign ID, Calculation Run ID, version, and status.
-
--- Detail and subtotal presentation remains a view or export concern.
--- Snapshot rows are stored at Campaign Offer plus Segment grain.
 
 INSERT INTO DM_PADM_SIGNATURE_PAGE_2_SNAPSHOT
 (
@@ -1098,9 +1009,6 @@ GROUP BY
     , O.PRINT_VENDOR_ID
     , R.CALCULATION_STATUS;
 
--- =============================================================================================
--- updates.sql
--- =============================================================================================
 ALTER TABLE DM_PADM_CHANGE_EVENT
 ADD COLUMN IF NOT EXISTS BEFORE_VALUE VARIANT;
 
@@ -1134,9 +1042,6 @@ WHERE TABLE_SCHEMA = 'RISK_SBX'
   )
 ORDER BY TABLE_NAME, COLUMN_NAME;
 
--- TRANSCRIPTION NOTE: the 3 ALTER TABLE statements below are a verbatim repeat of the 3 above
--- (idempotent, IF NOT EXISTS) -- this is what the real file actually shows (confirmed from two
--- separate photos of the same file), not a transcription duplication artifact.
 ALTER TABLE DM_PADM_CAMPAIGN_OFFER
 ADD COLUMN IF NOT EXISTS PROGRAM_MATCH_STATUS VARCHAR;
 
@@ -1168,22 +1073,8 @@ WHERE NOT EXISTS
         WHERE O.CAMPAIGN_SOURCE_VERSION_ID = V.CAMPAIGN_SOURCE_VERSION_ID
     );
 
--- =============================================================================================
--- wire_credit_bureau_fields.sql
--- =============================================================================================
--- ===========================================================================================
--- 1. Add the two columns (additive, non-breaking -- existing rows get NULL until backfilled
---    in step 4, or until SP_PADM_ACTIVATE_CAMPAIGN is next run for a campaign).
--- ===========================================================================================
-
 ALTER TABLE DM_PADM_CAMPAIGN_OFFER ADD COLUMN IF NOT EXISTS CREDIT_BUREAU_MODEL VARCHAR(16777216);
 ALTER TABLE DM_PADM_CAMPAIGN_OFFER ADD COLUMN IF NOT EXISTS CREDIT_BUREAU_SCORE VARCHAR(16777216);
-
--- ===========================================================================================
--- 2. VW_PADM_CAMPAIGN_OFFER_CURRENT -- same passthrough as before, with the 2 new columns
---    added (placed after CRS_SCORE, matching the sign-off proposal's field grouping).
---    Full CREATE OR REPLACE required to change a view's column list.
--- ===========================================================================================
 
 CREATE OR REPLACE VIEW VW_PADM_CAMPAIGN_OFFER_CURRENT(
     CAMPAIGN_OFFER_ID,
@@ -1234,17 +1125,6 @@ INNER JOIN DM_PADM_CAMPAIGN_SOURCE_VERSION AS S
    AND S.IS_CURRENT = TRUE
 WHERE O.IS_CURRENT = TRUE;
 
--- ===========================================================================================
--- 3. SP_PADM_ACTIVATE_CAMPAIGN -- identical to the existing procedure, with CREDIT_BUREAU_MODEL /
---    CREDIT_BUREAU_SCORE added to the DM_PADM_CAMPAIGN_OFFER INSERT's column list and its SELECT
---    (pulling S.CREDIT_BUREAU_MODEL / S.CREDIT_BUREAU_SCORE, which VW_PADM_ACM_OFFER_SOURCE
---    already provides). Nothing else in this procedure was changed -- same validations, same
---    hash, same QUALIFY dedup.
---
---    NOTE: this procedure checks V_STATUS NOT IN ('DISCOVERED', 'REOPENED', 'DRAFT') -- i.e. the
---    OLD status vocabulary is live in this real, currently-running procedure, not just in stale
---    DDL/docs.
--- ===========================================================================================
 CREATE OR REPLACE PROCEDURE SP_PADM_ACTIVATE_CAMPAIGN(P_CAMPAIGN_ID VARCHAR, P_CHANGE_REASON VARCHAR)
 RETURNS VARCHAR
 LANGUAGE SQL
@@ -1408,7 +1288,6 @@ BEGIN
       , SOURCE_GROUP_EXPIRE_DATE
       , SOURCE_LETTER_EXPIRE_DATE;
 
-    -- *** CHANGED: CREDIT_BUREAU_MODEL, CREDIT_BUREAU_SCORE added below (target + SELECT) ***
     INSERT INTO DM_PADM_CAMPAIGN_OFFER
     (
         CAMPAIGN_OFFER_ID
@@ -1610,12 +1489,6 @@ EXCEPTION
 END;
 $$;
 
--- ===========================================================================================
--- 4. One-time backfill for offers already activated BEFORE this change (their rows got NULL
---    from the ALTER TABLE above). Safe to run once; re-running only touches rows still NULL.
---    Uses the same dedup (QUALIFY) the procedure itself uses, so it won't double-match.
--- ===========================================================================================
-
 UPDATE DM_PADM_CAMPAIGN_OFFER AS O
 SET CREDIT_BUREAU_MODEL = S.CREDIT_BUREAU_MODEL,
     CREDIT_BUREAU_SCORE = S.CREDIT_BUREAU_SCORE
@@ -1631,9 +1504,7 @@ WHERE O.OFFER_RESERVATION_CODE = S.OFFER_RESERVATION_CODE
   AND O.SOURCE_MAIL_DATE = S.SOURCE_MAIL_DATE
   AND O.CREDIT_BUREAU_MODEL IS NULL;
 
--- Post-deployment check.
 SELECT 'DM_PADM_CAMPAIGN_OFFER.CREDIT_BUREAU_MODEL' AS OBJECT_NAME, COUNT(*) AS FOUND
 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'DM_PADM_CAMPAIGN_OFFER' AND COLUMN_NAME = 'CREDIT_BUREAU_MODEL'
 UNION ALL SELECT 'DM_PADM_CAMPAIGN_OFFER.CREDIT_BUREAU_SCORE', COUNT(*)
 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'DM_PADM_CAMPAIGN_OFFER' AND COLUMN_NAME = 'CREDIT_BUREAU_SCORE';
--- Expected: FOUND = 1 for both rows.

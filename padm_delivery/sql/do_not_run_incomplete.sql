@@ -1,17 +1,6 @@
--- INCOMPLETE: this file stops partway through SP_PADM_ACTIVATE_CAMPAIGN. Missing: the
--- DM_PADM_CAMPAIGN_SOURCE_COMPONENT insert, the offer insert, the profile insert, the final
--- UPDATE DM_PADM_CAMPAIGN_1 SET STATUS = 'DRAFT', and the EXCEPTION block. Do not run as-is --
--- get the complete procedure body before deploying.
-
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 
--- ===========================================================================================
--- PADM spec alignment, part 3b: SP_PADM_ACTIVATE_CAMPAIGN.
--- Same as wire_credit_bureau_fields.sql (ACM snapshot into source version / component / offer /
--- profile, WORKFLOW_EVENT + CHANGE_EVENT), with the new status values: NEW -> DRAFT.
--- Failures return text starting with 'ERROR: '.
--- ===========================================================================================
 CREATE OR REPLACE PROCEDURE SP_PADM_ACTIVATE_CAMPAIGN(P_CAMPAIGN_ID VARCHAR, P_CHANGE_REASON VARCHAR)
 RETURNS VARCHAR
 LANGUAGE SQL
@@ -153,15 +142,4 @@ BEGIN
          OR (:V_CAMPAIGN_TYPE = 'REMAIL' AND UPPER(TRIM(SOURCE_CAMPAIGN_GROUP_CODE)) IN ('MAP', 'PAREMAIL'))
       );
 
--- TRANSCRIPTION CUT OFF HERE (end of available source pages, around line 119-130 of the real
--- file). The real DM_PADM_CAMPAIGN_SOURCE_COMPONENT INSERT column list above is a GUESS carried
--- over from the already-confirmed SP_PADM_ACTIVATE_CAMPAIGN structure seen earlier in this
--- project (it reused the SOURCE_VERSION columns, which is almost certainly WRONG for a
--- "COMPONENT" grain table -- the real one groups by SOURCE_CAMPAIGN_IDENTIFICATION_CODE etc.,
--- not by campaign+version). DO NOT RUN THIS FILE'S COMPONENT INSERT AS-IS. Whoever finishes
--- this transcription needs to re-open padm_spec_alignment_03b_activate.sql starting around
--- line 119 ("INSERT INTO DM_PADM_CAMPAIGN_SOURCE_COMPONENT") and capture the rest verbatim:
--- the real component INSERT, the DM_PADM_CAMPAIGN_OFFER INSERT, the DM_PADM_CAMPAIGN_OFFER_PROFILE
--- INSERT, the final UPDATE DM_PADM_CAMPAIGN_1 SET STATUS = 'DRAFT', WORKFLOW_EVENT/CHANGE_EVENT
--- inserts, the validation counts, and the EXCEPTION block.
 $$;

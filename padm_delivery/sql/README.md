@@ -1,12 +1,13 @@
 # sql/ — folder guide
 
-6 files, all flat in this folder.
+6 files, all flat in this folder, no comments in any of them (plain SQL only
+— all notes below live here in this README instead).
 
 ## Run this
 
 | File | What it does |
 |------|---------------|
-| `deploy_run_this.sql` | The complete PADM deployment script, run top to bottom. Schema (tables/columns/seed data), views, procedures, the `VW_PADM_SEGMENT_SOURCE_CANDIDATE` rebuild, one-time fixes/seeds, and the Pre Signature Page tracking table, in that order, each section divided with its own header. Idempotent throughout (`CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` / `CREATE OR REPLACE VIEW`/`PROCEDURE`), except the one-time-fixes section, which should only be run once. |
+| `deploy_run_this.sql` | The complete PADM deployment script, run top to bottom. Schema (tables/columns/seed data), views, procedures, the `VW_PADM_SEGMENT_SOURCE_CANDIDATE` rebuild, one-time fixes/seeds, and the Pre Signature Page tracking table, in that order. Idempotent throughout (`CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` / `CREATE OR REPLACE VIEW`/`PROCEDURE`), except the one-time-fixes portion (CPP override fix, segment sync), which should only be run once. |
 
 ## Do not run
 
@@ -17,9 +18,7 @@
 ## Reference only (captures of the real, pre-existing Snowflake schema)
 
 Not deployment scripts — don't run these as part of a deploy. Each is a
-combination of multiple real-schema captures, grouped by object type; every
-section inside keeps its own divider and any completeness/uncertainty note
-that capture had.
+combination of multiple real-schema captures, grouped by object type.
 
 | File | Covers |
 |------|--------|
@@ -30,20 +29,19 @@ that capture had.
 
 Known overlaps worth knowing about:
 
-- **`VW_PADM_SIGNATURE_PAGE_LIVE`** appears again inside `reference_procedures.sql`
-  and `reference_other.sql` as earlier/historical copies. **`deploy_run_this.sql`'s
-  version (Views section) is the canonical, confirmed-fixed one** — don't
-  redeploy from the others.
+- **`VW_PADM_SIGNATURE_PAGE_LIVE`** is defined more than once across
+  `reference_procedures.sql` and `reference_other.sql` (earlier/historical
+  copies). **`deploy_run_this.sql`'s version is the canonical, confirmed-fixed
+  one** — don't redeploy from the others.
 - **`DM_PADM_CHANGE_EVENT`** in `reference_tables.sql` has already been
   corrected in place (`CHANGED_AT`, not `CHANGED_TS`) — this copy is current,
   not stale.
-- **`campaign_and_offer_tables.sql`**'s section (inside `reference_tables.sql`)
-  documents *pre-migration* DDL (old
-  `DISCOVERED/DRAFT/READY_FOR_REVIEW/COMPLETED/REOPENED` status vocabulary) —
+- `reference_tables.sql` has a `DM_PADM_CAMPAIGN_1` with a STATUS check
+  constraint using the OLD status vocabulary
+  (`DISCOVERED/DRAFT/READY_FOR_REVIEW/COMPLETED/REOPENED`) — pre-migration DDL;
   the real running app uses the newer vocabulary. Same caveat applies to the
-  `campaign_load_templates.sql` section in `reference_other.sql`.
-- The `wire_credit_bureau_fields.sql` section (in `reference_other.sql`) adds
-  the `CREDIT_BUREAU_MODEL` / `CREDIT_BUREAU_SCORE` / `CRS_MODEL` / `NRM`
-  columns that `campaign_and_offer_tables.sql`'s snapshot of
-  `DM_PADM_CAMPAIGN_OFFER` doesn't have yet — the two are sequential
-  snapshots of the same table, not conflicting definitions.
+  `discover_campaign()`-style `MERGE` template in `reference_other.sql`.
+- `reference_other.sql` adds `CREDIT_BUREAU_MODEL` / `CREDIT_BUREAU_SCORE` /
+  `CRS_MODEL` / `NRM` columns to `DM_PADM_CAMPAIGN_OFFER` that
+  `reference_tables.sql`'s earlier snapshot of that same table doesn't have
+  yet — the two are sequential snapshots, not conflicting definitions.

@@ -1,9 +1,6 @@
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 
--- =============================================================================================
--- calculation_views.sql
--- =============================================================================================
 CREATE OR REPLACE VIEW VW_PADM_NRR_CURRENT AS
 WITH MAPPED AS
 (
@@ -130,12 +127,6 @@ SELECT
     , F.UNWIND_COUNT / NULLIF(F.BOARD_COUNT, 0) AS HISTORICAL_UNWIND_RATE
     , 'SEGMENT_FALLBACK' AS UNWIND_SOURCE
 FROM SEGMENT_FALLBACK AS F;
-
--- INCOMPLETE: VW_PADM_SEGMENT_CALCULATION_CURRENT below is cut off mid-definition. Everything
--- above (VW_PADM_NRR_CURRENT, VW_PADM_UNWIND_CURRENT) is complete. Below is the GRID and the
--- start of the MEASURES CTE, through its SELECT list up to H.CAMPAIGN_TYPE -- the rest of
--- MEASURES, the final outer SELECT, and the closing semicolon are missing. Do not run this
--- file as-is; do not assume what follows.
 
 CREATE OR REPLACE VIEW VW_PADM_SEGMENT_CALCULATION_CURRENT AS
 WITH GRID AS
@@ -325,17 +316,6 @@ SELECT
     , M.UNWIND_SOURCE
 FROM MEASURES AS M;
 
--- =============================================================================================
--- cde_final.sql
--- =============================================================================================
--- NOTE: this file's VW_PADM_CDE_GRID_CURRENT definition reads from VW_PADM_CDE_DETAIL_CURRENT.
--- A SECOND, DIFFERENT definition of the same view name appears in current_state_views.sql
--- (reading directly from DM_PADM_CDE_DETAIL + DM_PADM_CDE_LOAD_BATCH instead). Since
--- CREATE OR REPLACE means whichever runs last wins, confirm the real execution order between
--- these two files before assuming either is "the" definition.
-
--- It retains the active CDE batch and version used by each grid cell.
-
 CREATE OR REPLACE VIEW VW_PADM_CDE_GRID_CURRENT
 AS
 SELECT
@@ -355,8 +335,6 @@ GROUP BY
     , D.TRM10_TIER
     , D.TIMES_MAILED_BUCKET;
 
--- Confirm the final view contract.
-
 SELECT
       ORDINAL_POSITION
     , COLUMN_NAME
@@ -366,8 +344,6 @@ WHERE TABLE_SCHEMA = 'RISK_SBX'
   AND TABLE_NAME = 'VW_PADM_CDE_GRID_CURRENT'
 ORDER BY ORDINAL_POSITION;
 
--- Confirm one active grid lineage per Campaign and Segment.
--- Expected: no rows.
 SELECT
       CAMPAIGN_ID
     , SEGMENT_ID
@@ -378,9 +354,6 @@ GROUP BY
     , SEGMENT_ID
 HAVING COUNT(DISTINCT CDE_LOAD_BATCH_ID) > 1;
 
--- =============================================================================================
--- current_state_views.sql
--- =============================================================================================
 CREATE OR REPLACE VIEW VW_PADM_CAMPAIGN_CURRENT AS
 SELECT
       CAMPAIGN_ID
@@ -479,8 +452,6 @@ LEFT JOIN VW_PADM_SEGMENT_ASSUMPTION_CURRENT AS SA
    AND CS.SEGMENT_ID = SA.SEGMENT_ID
 WHERE CS.IS_CURRENT = TRUE;
 
--- TRANSCRIPTION NOTE: see cde_final.sql -- this is a SECOND, different definition of
--- VW_PADM_CDE_GRID_CURRENT than the one in that file. Do not assume which is authoritative.
 CREATE OR REPLACE VIEW VW_PADM_CDE_GRID_CURRENT AS
 SELECT
       D.CAMPAIGN_ID
@@ -516,13 +487,6 @@ SELECT
     , UPDATED_BY
     , UPDATED_TS
 FROM DM_PADM_SELECTION_WORKING;
-
--- =============================================================================================
--- source_views.sql
--- =============================================================================================
--- INCOMPLETE: a gap exists around lines ~397-426 (part of VW_PADM_ACM_OFFER_SOURCE's WHERE
--- clause) and whatever follows the WHERE clause -- including any further views after it -- is
--- missing below. Confirm against the live objects before relying on this file past that point.
 
 CREATE OR REPLACE VIEW VW_PADM_ACM_CAMPAIGN_CANDIDATE
 AS
@@ -775,10 +739,6 @@ SELECT
     , O.CAMPAIGN_OFFER_RESERVATION_CODE
         AS OFFER_RESERVATION_CODE
 
-    /*
-    Use the offer table as the authoritative source for the
-    Program Code and Program Version assigned to the offer.
-    */
     , O.PROGRAM_CODE
         AS PROGRAM_CODE
 
@@ -949,14 +909,10 @@ WHERE O.CAMPAIGN_GROUP_MAIL_DATE IS NOT NULL
             O.CAMPAIGN_OFFER_RESERVATION_CODE
         )
     )
--- INCOMPLETE/UNRELIABLE from here: this and the fragment below are two overlapping, incomplete
--- captures of the same WHERE clause, with a real gap between them (part of the clause is
--- missing from both) and an incomplete UPPER(...) expression. Confirm against the live view
--- before relying on either fragment.
 
 WHERE O.CAMPAIGN_GROUP_MAIL_DATE IS NOT NULL
   AND UPPER(
-      -- inner expression not captured
+
   ) NOT LIKE 'W%'
 
   AND LENGTH(

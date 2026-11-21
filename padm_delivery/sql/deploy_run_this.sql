@@ -1,23 +1,6 @@
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 
--- =============================================================================================
--- 1. Schema -- additive tables/columns + reference data
--- =============================================================================================
--- ===========================================================================================
--- PADM spec alignment, part 1: additive schema changes + reference data.
--- Idempotent: ADD COLUMN IF NOT EXISTS / CREATE TABLE IF NOT EXISTS / MERGE seeds.
--- Run order: 01_schema -> 02_views -> 03_procedures -> 04_task.
--- ===========================================================================================
-
--- -------------------------------------------------------------------------------------------
--- 1. Campaign status migration (spec 2.5)
---    DISCOVERED -> NEW, READY_FOR_REVIEW -> PENDING_APPROVAL, COMPLETED -> APPROVED,
---    REOPENED -> DRAFT. DRAFT unchanged.
--- -------------------------------------------------------------------------------------------
-
--- Snowflake does not enforce CHECK constraints; status rules are enforced in SP_PADM_TRANSITION_CAMPAIGN_STATUS.
--- If the old constraint exists in metadata, drop it so the documented status list matches.
 ALTER TABLE DM_PADM_CAMPAIGN_1 DROP CONSTRAINT CK_PADM_CAMPAIGN_STATUS;
 
 UPDATE DM_PADM_CAMPAIGN_1
@@ -30,16 +13,11 @@ SET STATUS = CASE STATUS
              END
 WHERE STATUS IN ('DISCOVERED', 'READY_FOR_REVIEW', 'COMPLETED', 'REOPENED');
 
--- New rows are inserted with STATUS = 'NEW' explicitly (Snowflake cannot change a column default in place).
-
 ALTER TABLE DM_PADM_CAMPAIGN_1 ADD CONSTRAINT CK_PADM_CAMPAIGN_STATUS CHECK
 (
     STATUS IN ('NEW', 'DRAFT', 'IN_PROGRESS', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED')
 ) ENABLE NOVALIDATE ;
 
--- -------------------------------------------------------------------------------------------
--- 2. Assumptions: NBR and Unwind Rate (spec 5.2), optimistic-lock + audit columns.
--- -------------------------------------------------------------------------------------------
 ALTER TABLE DM_PADM_CAMPAIGN_ASSUMPTION_VERSION ADD COLUMN IF NOT EXISTS NBR NUMBER(18,8);
 ALTER TABLE DM_PADM_CAMPAIGN_ASSUMPTION_VERSION ADD COLUMN IF NOT EXISTS UNWIND_RATE NUMBER(18,8);
 ALTER TABLE DM_PADM_CAMPAIGN_ASSUMPTION_VERSION ADD COLUMN IF NOT EXISTS ROW_VERSION NUMBER(38,0) DEFAULT 1;
@@ -52,11 +30,9 @@ ALTER TABLE DM_PADM_SEGMENT_ASSUMPTION_VERSION ADD COLUMN IF NOT EXISTS ROW_VERS
 ALTER TABLE DM_PADM_SEGMENT_ASSUMPTION_VERSION ADD COLUMN IF NOT EXISTS UPDATED_BY VARCHAR;
 ALTER TABLE DM_PADM_SEGMENT_ASSUMPTION_VERSION ADD COLUMN IF NOT EXISTS UPDATED_TS TIMESTAMP_NTZ;
 
--- Segment working copy / allocation: optimistic lock column (spec 0.4).
 ALTER TABLE DM_PADM_CAMPAIGN_SEGMENT_1 ADD COLUMN IF NOT EXISTS ROW_VERSION NUMBER(38,0) DEFAULT 1;
 ALTER TABLE DM_PADM_OFFER_SEGMENT_ALLOCATION ADD COLUMN IF NOT EXISTS ROW_VERSION NUMBER(38,0) DEFAULT 1;
 
--- Segment master: free-form field, times-mailed filter and optional attributes (spec 4.2).
 ALTER TABLE DM_PADM_SEGMENT_1 ADD COLUMN IF NOT EXISTS CREDIT_BUREAU_MODEL VARCHAR;
 ALTER TABLE DM_PADM_SEGMENT_1 ADD COLUMN IF NOT EXISTS CREDIT_BUREAU_SCORE VARCHAR;
 ALTER TABLE DM_PADM_SEGMENT_1 ADD COLUMN IF NOT EXISTS CRS_MODEL VARCHAR;
@@ -65,7 +41,6 @@ ALTER TABLE DM_PADM_SEGMENT_1 ADD COLUMN IF NOT EXISTS TIMES_MAILED_FILTER ARRAY
 ALTER TABLE DM_PADM_SEGMENT_1 ADD COLUMN IF NOT EXISTS FREE_FORM_NOTE VARCHAR;
 ALTER TABLE DM_PADM_SEGMENT_1 ADD COLUMN IF NOT EXISTS TIER_MODEL VARCHAR DEFAULT 'TRM10';
 
--- Signature Page 2 snapshot: unit cost + hidden fields (spec 3.5) so the snapshot is complete.
 ALTER TABLE DM_PADM_SIGNATURE_PAGE_2_SNAPSHOT ADD COLUMN IF NOT EXISTS OFFER_RESERVATION_CODE VARCHAR;
 ALTER TABLE DM_PADM_SIGNATURE_PAGE_2_SNAPSHOT ADD COLUMN IF NOT EXISTS UNIT_COST NUMBER(18,4);
 ALTER TABLE DM_PADM_SIGNATURE_PAGE_2_SNAPSHOT ADD COLUMN IF NOT EXISTS POPULATION_GROUP_KEY VARCHAR;
@@ -86,12 +61,6 @@ ALTER TABLE DM_PADM_SIGNATURE_PAGE_2_SNAPSHOT ADD COLUMN IF NOT EXISTS TIMES_MAI
 ALTER TABLE DM_PADM_SIGNATURE_PAGE_2_SNAPSHOT ADD COLUMN IF NOT EXISTS TIMES_MAILED_8_PERCENTAGE NUMBER(18,8);
 ALTER TABLE DM_PADM_SIGNATURE_PAGE_2_SNAPSHOT ADD COLUMN IF NOT EXISTS TIMES_MAILED_9_PLUS_PERCENTAGE NUMBER(18,8);
 
--- -------------------------------------------------------------------------------------------
--- 3. Reference: assumption definitions (spec 5.1 "validation and type for each assumption").
---    DISPLAY_UNIT: CURRENCY / FRACTION (entered as-is) / PERCENT (entered x100, stored /100).
---    MIN/MAX are in stored units. Adding a row here adds an assumption to the UI.
--- -------------------------------------------------------------------------------------------
-
 CREATE TABLE IF NOT EXISTS DM_PADM_ASSUMPTION_DEFINITION
 (
     ASSUMPTION_CODE VARCHAR NOT NULL,
@@ -102,10 +71,10 @@ CREATE TABLE IF NOT EXISTS DM_PADM_ASSUMPTION_DEFINITION
     MIN_VALUE NUMBER(18,8),
     MAX_VALUE NUMBER(18,8),
     ALLOW_NEGATIVE BOOLEAN NOT NULL DEFAULT FALSE,
-    ASSUMPTION_LEVEL VARCHAR NOT NULL,          -- CAMPAIGN / SEGMENT / CAMPAIGN_SEGMENT
-    CAMPAIGN_COLUMN VARCHAR,                    -- column on DM_PADM_CAMPAIGN_ASSUMPTION_VERSION
-    SEGMENT_COLUMN VARCHAR,                     -- column on DM_PADM_SEGMENT_ASSUMPTION_VERSION
-    ENTERED_ON VARCHAR NOT NULL,                -- ASSUMPTIONS / SEGMENT_VIEWER / BOTH
+    ASSUMPTION_LEVEL VARCHAR NOT NULL,
+    CAMPAIGN_COLUMN VARCHAR,
+    SEGMENT_COLUMN VARCHAR,
+    ENTERED_ON VARCHAR NOT NULL,
     DISPLAY_SEQUENCE NUMBER(10,0),
     ACTIVE_FLAG BOOLEAN NOT NULL DEFAULT TRUE,
     CREATED_BY VARCHAR NOT NULL DEFAULT CURRENT_USER(),
@@ -125,10 +94,7 @@ USING
        'BOTH',             20)
     , ('NBR',                              'NBR',                          'NUMBER', 'FRACTION', 4, 0,    1,    FALSE, 'CAMPAIGN_SEGMENT',  'NBR',       'NBR_OVERRIDE',
        'ASSUMPTIONS',      30)
-    -- SEGMENT_COLUMN/ENTERED_ON set to 'BOTH' (same as CPP/Unit Cost): UNWIND_RATE_OVERRIDE is a
-    -- real column on DM_PADM_SEGMENT_ASSUMPTION_VERSION and VW_PADM_EFFECTIVE_ASSUMPTION already
-    -- reads it, but nothing could write it with SEGMENT_COLUMN NULL -- Unwind Rate would never
-    -- appear on Segment Viewer otherwise.
+
     , ('UNWIND_RATE',                      'Unwind Rate',                  'NUMBER', 'PERCENT',  2, 0,    1,    FALSE, 'CAMPAIGN_SEGMENT',  'UNWIND_RATE', 'UNWIND_RATE_OVERRIDE',
        'BOTH',             40)
     , ('UNWIND_RATE_ADJUSTMENT',           'Unwind Rate Adjustment',       'NUMBER', 'PERCENT',  2, -1,   10,   TRUE,  'SEGMENT',           NULL,
@@ -148,13 +114,9 @@ VALUES
     (S.ASSUMPTION_CODE, S.ASSUMPTION_LABEL, S.DATA_TYPE, S.DISPLAY_UNIT, S.DECIMALS, S.MIN_VALUE, S.MAX_VALUE, S.ALLOW_NEGATIVE,
      S.ASSUMPTION_LEVEL, S.CAMPAIGN_COLUMN, S.SEGMENT_COLUMN, S.ENTERED_ON, S.DISPLAY_SEQUENCE);
 
--- -------------------------------------------------------------------------------------------
--- 4. Reference: prospect type rule (spec 3.3). Unlisted ACM segment names -> DEFAULT row.
--- -------------------------------------------------------------------------------------------
-
 CREATE TABLE IF NOT EXISTS DM_PADM_PROSPECT_TYPE_RULE
 (
-    ACM_SEGMENT_NAME VARCHAR NOT NULL,          -- '*' = default for unlisted names
+    ACM_SEGMENT_NAME VARCHAR NOT NULL,
     PROSPECT_TYPE VARCHAR NOT NULL,
     VALID_FROM DATE NOT NULL DEFAULT CURRENT_DATE(),
     VALID_TO DATE,
@@ -177,18 +139,12 @@ USING
 ON T.ACM_SEGMENT_NAME = S.ACM_SEGMENT_NAME
 WHEN NOT MATCHED THEN INSERT (ACM_SEGMENT_NAME, PROSPECT_TYPE) VALUES (S.ACM_SEGMENT_NAME, S.PROSPECT_TYPE);
 
--- -------------------------------------------------------------------------------------------
--- 5. Final Version mail-file cell volumes (spec 7.6). Loaded from T_EXPERIAN_MAILFILE /
---    T_TRANSUNION_MAILFILE at Tier x Times Mailed grain. The source column mapping is an open
---    VERIFY item (the mail-file tables are not visible from the build connection).
--- -------------------------------------------------------------------------------------------
-
 CREATE TABLE IF NOT EXISTS DM_PADM_MAILFILE_CELL
 (
     MAILFILE_CELL_ID VARCHAR NOT NULL,
     CAMPAIGN_ID VARCHAR NOT NULL,
     SEGMENT_ID VARCHAR NOT NULL,
-    SOURCE_NAME VARCHAR NOT NULL,               -- EXPERIAN / TRANSUNION
+    SOURCE_NAME VARCHAR NOT NULL,
     RESPONSE_MODEL_TIER NUMBER(10,0) NOT NULL,
     TIMES_MAILED_BUCKET VARCHAR NOT NULL,
     MAIL_QUANTITY NUMBER(38,0) NOT NULL,
@@ -198,13 +154,6 @@ CREATE TABLE IF NOT EXISTS DM_PADM_MAILFILE_CELL
     CREATED_TS TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
     CONSTRAINT PK_PADM_MAILFILE_CELL PRIMARY KEY (MAILFILE_CELL_ID)
 );
-
--- =============================================================================================
--- 2. Views
--- =============================================================================================
--- ===========================================================================================
--- PADM spec alignment, part 2: views. Requires part 1.
--- ===========================================================================================
 
 CREATE OR REPLACE VIEW VW_PADM_CAMPAIGN_ASSUMPTION_CURRENT AS
 SELECT
@@ -243,7 +192,6 @@ SELECT
 FROM DM_PADM_SEGMENT_ASSUMPTION_VERSION
 WHERE IS_CURRENT = TRUE;
 
--- Segment value overrides campaign value (spec 5.1).
 CREATE OR REPLACE VIEW VW_PADM_EFFECTIVE_ASSUMPTION AS
 SELECT
       CS.CAMPAIGN_ID
@@ -263,11 +211,6 @@ LEFT JOIN VW_PADM_SEGMENT_ASSUMPTION_CURRENT AS SA
       AND CS.SEGMENT_ID = SA.SEGMENT_ID
 WHERE CS.IS_CURRENT = TRUE;
 
--- -------------------------------------------------------------------------------------------
--- Segment calculation (spec 7.8). Mirrors padm/formulas.py -- keep the two in sync.
--- Fallback for NRR / unwind / EMS: exact cell -> segment + campaign type -> campaign default.
--- EMS campaign default is the POC blanket 5% when no EMS rate row exists (spec 7.5).
--- -------------------------------------------------------------------------------------------
 CREATE OR REPLACE VIEW VW_PADM_SEGMENT_CALCULATION_CURRENT AS
 WITH GRID AS
 (
@@ -415,16 +358,6 @@ SELECT
     , M.EMS_SOURCE
 FROM MEASURES AS M;
 
--- -------------------------------------------------------------------------------------------
--- Signature page, all calculation sources (spec 3 / 8). Grain: campaign + calc source + offer.
---   CALC_SOURCE_ID = 'LIVE' -> live numbers from VW_PADM_SEGMENT_CALCULATION_CURRENT
---   CALC_SOURCE_ID = <run>  -> frozen numbers from DM_PADM_CALCULATION_CELL for that run
--- Offers drive the row set (ACM LEFT JOIN campaign data), so the page is a populated shell
--- before any segment exists. Attribute columns come from the ACM row the offer was
--- snapshotted from (SOURCE_RECORD_ID = RCD_UUID).
--- A segment's calculated totals are split across its offers in proportion to each offer's
--- base quantity (equal split when no offer has a quantity).
--- -------------------------------------------------------------------------------------------
 CREATE OR REPLACE VIEW VW_PADM_SIGNATURE_PAGE_ALL AS
 WITH SEGMENT_GROUP AS
 (
@@ -469,10 +402,10 @@ BASE AS
         , COALESCE(ACM.COST_PER_PIECE::NUMBER(18,6), O.SOURCE_CPP) AS ACM_CPP
         , COALESCE(ACM.RESERVATION_CODE_RISK, O.PROMO_CODE) AS PROMO
         , COALESCE(ACM.CAMPAIGN_OFFER_APPROVAL_CODE, O.APPROVAL_CODE) AS IVR
-        , NULL::VARCHAR AS UNDERWRITING_FLAG                                  -- lookup source TBD (spec 10)
+        , NULL::VARCHAR AS UNDERWRITING_FLAG
         , COALESCE(PT.PROSPECT_TYPE, PTD.PROSPECT_TYPE) AS PROSPECT_TYPE
         , COALESCE(ACM.PRINT_VENDOR_ID, O.PRINT_VENDOR_ID) AS PRINT_VENDOR
-        -- hidden fields (spec 3.5)
+
         , YEAR(ACM.CAMPAIGN_GROUP_MAIL_DATE) AS CAMPAIGN_YEAR
         , MONTH(ACM.CAMPAIGN_GROUP_MAIL_DATE) AS CAMPAIGN_MONTH
         , C.CAMPAIGN_SEQUENCE AS CAMPAIGN_MONTH_SEQUENCE
@@ -480,7 +413,7 @@ BASE AS
         , COALESCE(ACM.CAMPAIGN_GROUP_MAIL_DATE::DATE, O.SOURCE_MAIL_DATE) AS MAIL_DATE
         , COALESCE(ACM.CAMPAIGN_OFFER_SEGMENT_NAME, O.OFFER_SEGMENT_NAME) AS ACM_SEGMENT
         , ACM.CAMPAIGN_OFFER_CONTROL_TEST_NAME AS TEST_PAIRINGS
-        -- quantity (MKU / 105 / mail file) and times-mailed mix from the offer profile
+
         , COALESCE(PR.ACTUAL_MAIL_QUANTITY, PR.REPORT_105_VOLUME, PR.MKU_VOLUME) AS BASE_QUANTITY
         , PR.TIMES_MAILED_0_COUNT, PR.TIMES_MAILED_1_COUNT, PR.TIMES_MAILED_2_COUNT, PR.TIMES_MAILED_3_COUNT
         , PR.TIMES_MAILED_4_COUNT, PR.TIMES_MAILED_5_COUNT, PR.TIMES_MAILED_6_COUNT, PR.TIMES_MAILED_7_COUNT
@@ -638,7 +571,7 @@ SELECT
     , CAMPAIGN_MONTH_SEQUENCE
     , CAMPAIGN_MONTH
     , CAMPAIGN_YEAR
-    -- hidden fields
+
     , IFF(TIMES_MAILED_TOTAL, TIMES_MAILED_0_COUNT / TIMES_MAILED_TOTAL, NULL) AS TIMES_MAILED_0_PERCENTAGE
     , TIMES_MAILED_1_COUNT / TIMES_MAILED_TOTAL AS TIMES_MAILED_1_PERCENTAGE
     , TIMES_MAILED_2_COUNT / TIMES_MAILED_TOTAL AS TIMES_MAILED_2_PERCENTAGE
@@ -651,16 +584,6 @@ SELECT
     , TIMES_MAILED_9_PLUS_COUNT / TIMES_MAILED_TOTAL AS TIMES_MAILED_9_PLUS_PERCENTAGE
 FROM FIGURES_3;
 
--- -------------------------------------------------------------------------------------------
--- Live (pre-snapshot) signature page (spec 3.6): same shape and formulas as the snapshot.
--- Standalone view -- does NOT wrap VW_PADM_SIGNATURE_PAGE_ALL. Joins VW_PADM_ACM_OFFER_SOURCE
--- on OFFER_RESERVATION_CODE for CRS_MODEL/NRM; NETWORK/ANNUAL_FEE_YR1/YR2 COALESCE between that
--- same source and T_ACM_PROGRAMS.
--- Offer-driven with a LEFT JOIN to DM_PADM_OFFER_SEGMENT_ALLOCATION (not an INNER JOIN): offers
--- drive the row set as a populated shell before any segment exists, so unallocated offers still
--- show, with NULL SEGMENT_ID/POPULATION_DESCRIPTION, instead of only offers already linked to
--- a segment.
--- -------------------------------------------------------------------------------------------
 CREATE OR REPLACE VIEW VW_PADM_SIGNATURE_PAGE_LIVE AS
 WITH TIMES_MAILED_0 AS (
     SELECT CAMPAIGN_OFFER_ID,
@@ -712,10 +635,6 @@ GROUP BY O.CAMPAIGN_ID, O.CAMPAIGN_OFFER_ID, A.SEGMENT_ID, A.POPULATION_DESCRIPT
          SRC.NRM, SRC.ANNUAL_FEE_YR1, P.ANNUAL_FEE_YR1, SRC.ANNUAL_FEE_YR2, P.ANNUAL_FEE_YR2, O.PROMO_CODE,
          O.APPROVAL_CODE, O.UNDERWRITING_FLAG, O.PROSPECT_TYPE, O.PRINT_VENDOR_ID, T0.TIMES_MAILED_0_PERCENTAGE;
 
--- -------------------------------------------------------------------------------------------
--- Create Segment dropdown (spec 4.1): distinct values from ACM rows mailed in the
--- last 60 days. One row per (FIELD_NAME, FIELD_VALUE).
--- -------------------------------------------------------------------------------------------
 CREATE OR REPLACE VIEW VW_PADM_SEGMENT_DROPDOWN_60D AS
 WITH RECENT AS
 (
@@ -736,25 +655,9 @@ FROM
     UNION ALL SELECT 'CRS_SCORE', TO_VARCHAR(PROSPECT_CRS_SCORE) FROM RECENT
 ) AS ALL_FIELDS;
 
--- =============================================================================================
--- 3. Procedures
--- =============================================================================================
--- ===========================================================================================
--- PADM spec alignment, part 3: procedures. Requires parts 1 and 2.
--- Convention for the procedures in this file: a failure returns text starting with 'ERROR: '.
--- Every write procedure rejects campaigns in APPROVED status (spec 0.9).
--- SP_PADM_ACTIVATE_CAMPAIGN is in padm_spec_alignment_03b_activate.sql.
--- ===========================================================================================
-
--- Old 7-argument signatures are replaced by the versions below (NBR / Unwind Rate / lock).
 DROP PROCEDURE IF EXISTS SP_PADM_SAVE_CAMPAIGN_ASSUMPTION(VARCHAR, NUMBER, NUMBER, NUMBER, NUMBER, NUMBER, VARCHAR);
 DROP PROCEDURE IF EXISTS SP_PADM_SAVE_SEGMENT_ASSUMPTION(VARCHAR, VARCHAR, NUMBER, NUMBER, NUMBER, NUMBER, NUMBER, VARCHAR);
 
--- -------------------------------------------------------------------------------------------
--- Campaign-level assumptions (CPP, Unit Cost, NBR, Unwind Rate). Segment-only assumptions
--- (Rate Adjustment, Seasonality, Unwind Rate Adjustment) are carried forward untouched.
--- P_EXPECTED_VERSION = version the user loaded; a mismatch means someone saved in between.
--- -------------------------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE SP_PADM_SAVE_CAMPAIGN_ASSUMPTION
 (
     P_CAMPAIGN_ID VARCHAR,
@@ -824,11 +727,6 @@ EXCEPTION WHEN OTHER THEN ROLLBACK; RAISE;
 END;
 $$;
 
--- -------------------------------------------------------------------------------------------
--- Segment-level assumptions. NULL = inherit the campaign-level value. CPP is campaign-only and
--- is carried forward from the previous segment version.
--- Seasonality is a fraction that may be negative (spec 5.2), bounded to [-1, 1].
--- -------------------------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE SP_PADM_SAVE_SEGMENT_ASSUMPTION
 (
     P_CAMPAIGN_ID VARCHAR,
@@ -920,9 +818,6 @@ EXCEPTION WHEN OTHER THEN ROLLBACK; RAISE;
 END;
 $$;
 
--- -------------------------------------------------------------------------------------------
--- Selection set save (spec 7.4): working -> immutable set + cells, SAVE audit event.
--- -------------------------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE SP_PADM_SAVE_SELECTION_SET(
     P_CAMPAIGN_ID VARCHAR,
     P_SEGMENT_ID VARCHAR,
@@ -966,7 +861,6 @@ BEGIN
     SELECT :V_SET_ID, RESPONSE_MODEL_TIER, TIMES_MAILED_BUCKET, SELECTION_PERCENTAGE
     FROM DM_PADM_SELECTION_WORKING WHERE CAMPAIGN_ID = :P_CAMPAIGN_ID AND SEGMENT_ID = :P_SEGMENT_ID;
 
-    -- Link this save to the per-action events the app logged since the previous save.
     UPDATE DM_PADM_SELECTION_EVENT SET SELECTION_SET_ID = :V_SET_ID
     WHERE CAMPAIGN_ID = :P_CAMPAIGN_ID AND SEGMENT_ID = :P_SEGMENT_ID AND SELECTION_SET_ID IS NULL;
 
@@ -984,9 +878,6 @@ EXCEPTION WHEN OTHER THEN ROLLBACK; RAISE;
 END;
 $$;
 
--- -------------------------------------------------------------------------------------------
--- CDE activation with the read-only guard.
--- -------------------------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE SP_PADM_ACTIVATE_CDE_VERSION
 (
     P_CDE_LOAD_BATCH_ID VARCHAR,
@@ -1035,14 +926,6 @@ EXCEPTION WHEN OTHER THEN ROLLBACK; RAISE;
 END;
 $$;
 
--- -------------------------------------------------------------------------------------------
--- Status workflow (spec 2.5). The only path that changes DM_PADM_CAMPAIGN_1.STATUS besides
--- activation (NEW -> DRAFT) and Signature Page 2 generation (-> PENDING_APPROVAL).
---   DRAFT -> IN_PROGRESS            new working version
---   IN_PROGRESS -> IN_PROGRESS      new working version (v1, v2, ...)
---   PENDING_APPROVAL -> APPROVED    latest snapshot + selection sets frozen, read-only
---   PENDING_APPROVAL -> REJECTED    recorded, then returned to DRAFT (versions kept)
--- -------------------------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE SP_PADM_TRANSITION_CAMPAIGN_STATUS
 (
     P_CAMPAIGN_ID VARCHAR,
@@ -1131,11 +1014,6 @@ EXCEPTION WHEN OTHER THEN ROLLBACK; RAISE;
 END;
 $$;
 
--- -------------------------------------------------------------------------------------------
--- Calculation run (spec 7.8). Dependency order: CPA needs Marketing Cost (CPP) and Booked
--- Pre-Unwind (CDE volume + selections + NRR), so those must exist first.
--- Success returns '<run id>|<cell count>'.
--- -------------------------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE SP_PADM_RUN_CALCULATION(P_CAMPAIGN_ID VARCHAR)
 RETURNS VARCHAR
 LANGUAGE SQL
@@ -1206,10 +1084,6 @@ EXCEPTION WHEN OTHER THEN ROLLBACK; RAISE;
 END;
 $$;
 
--- -------------------------------------------------------------------------------------------
--- Signature Page 2 snapshot (spec 8). Refuses unless the given run is the campaign's latest
--- run and is COMPLETED. Assigns the next version, then moves the campaign to PENDING_APPROVAL.
--- -------------------------------------------------------------------------------------------
 CREATE OR REPLACE PROCEDURE SP_PADM_GENERATE_SIGNATURE_PAGE_2(
     P_CAMPAIGN_ID VARCHAR,
     P_CALCULATION_RUN_ID VARCHAR
@@ -1302,35 +1176,6 @@ EXCEPTION WHEN OTHER THEN ROLLBACK; RAISE;
 END;
 $$;
 
--- =============================================================================================
--- 4. VW_PADM_SEGMENT_SOURCE_CANDIDATE rebuild
--- =============================================================================================
--- Rebuild of VW_PADM_SEGMENT_SOURCE_CANDIDATE, sourced from the real project tables
--- (CSTONE_BIZ.REFERENCE.T_EXPERIAN_MAILFILE / T_TRANSUNION_MAILFILE) instead of
--- DM_PADM_TR_MAILFILE_NORMALIZED (not part of this project).
---
--- Column list is unchanged from the original view, so repository.discover_segments()'s MERGE
--- needs no changes -- it just reads this view by name.
---
--- Simplifications made, and why:
---   - ANNUAL_FEE / NETWORK / MAIL_REMAIL are NULL here. The raw mailfile tables don't carry
---     these -- they're offer/program-level attributes, not prospect-level. Safe to leave NULL:
---     DM_PADM_SEGMENT_1 has all three as nullable columns, and Create Segment's own form never
---     requires them.
---   - CAMPAIGN_SOURCE / CAMPAIGN_SCORE_SEGMENT (seen in both raw tables) were NOT used -- they're
---     internal letter/number codes (e.g. 'A','V','1'..'9') with no decode table available, and
---     PROSPECT_TYPE / PROSPECT_SOURCE already give the same classification in clean, readable form.
---   - BUREAU_SCORE_TYPE / SCORE_MIN / SCORE_MAX come from banding the RAW numeric score columns
---     (PRESCREEN_VANTAGE_V3, PRESCREEN_VANTAGE_V4, LIFT_SCORE) against DM_PADM_SCORE_RANGE_RULE_1
---     (the "_1" table -- the one the app actually reads elsewhere, not the no-suffix
---     DM_PADM_SCORE_RANGE_RULE) via a SCORE_MIN/SCORE_MAX BETWEEN join. Real ranges: Experian
---     VS3 4-823, VS4 0-850, LIFT 500-807; TransUnion VS3 0-730 (the low sentinel values like 0/4
---     naturally fail to match any real band and are dropped by the INNER JOIN).
---   - TransUnion has no LIFT_SCORE column -- no TRANSUNION + LIFT branch exists here. The Create
---     Segment dropdown shows LIFT for TransUnion anyway; selecting it will correctly hit "no
---     active score-range rules" until/unless real TransUnion LIFT data is found elsewhere.
-
-
 CREATE OR REPLACE VIEW VW_PADM_SEGMENT_SOURCE_CANDIDATE(
     SEGMENT_KEY,
     SUGGESTED_SEGMENT_NAME,
@@ -1409,34 +1254,16 @@ INNER JOIN DB_RISK.RISK_SBX.DM_PADM_SCORE_RANGE_RULE_1 AS R
 GROUP BY M.SOURCE, M.BUREAU_SCORE_TYPE, R.SCORE_RANGE_CODE, R.SCORE_MIN, R.SCORE_MAX,
          M.PROSPECT_SEGMENT_TYPE, M.SOURCE_SEGMENT_NAME, M.MLA_FLAG, M.RESPONSE_MODEL_TYPE, M.RISK_SCORE_TYPE;
 
--- Sanity check: should return real rows, grouped by bureau/score-type/band.
 SELECT SOURCE, BUREAU_SCORE_TYPE, BUREAU_SCORE_RANGE, SCORE_MIN, SCORE_MAX,
        COUNT(DISTINCT PROSPECT_SEGMENT_TYPE) AS DISTINCT_PROSPECT_TYPES, SUM(SOURCE_RECORD_COUNT) AS TOTAL_RECORDS
 FROM VW_PADM_SEGMENT_SOURCE_CANDIDATE
 GROUP BY SOURCE, BUREAU_SCORE_TYPE, BUREAU_SCORE_RANGE, SCORE_MIN, SCORE_MAX
 ORDER BY SOURCE, BUREAU_SCORE_TYPE, SCORE_MIN;
 
--- =============================================================================================
--- 5. One-time fixes and seeds
--- =============================================================================================
--- One-time fixes and data seeds. Run each section once, in order.
--- Run AFTER 04_segment_source_candidate_rebuild.sql (that file rebuilds the view this one reads).
-
-
--- ===========================================================================================
--- 1. CPP fix: make it a real segment-level override, not campaign-only.
---    The seed in 01_schema.sql now has the right value for a fresh deploy, but that MERGE
---    only inserts new rows -- it won't touch the CPP row that already exists. Run this instead.
--- ===========================================================================================
 UPDATE DM_PADM_ASSUMPTION_DEFINITION
 SET ASSUMPTION_LEVEL = 'CAMPAIGN_SEGMENT', UPDATED_BY = CURRENT_USER(), UPDATED_TS = CURRENT_TIMESTAMP()
 WHERE ASSUMPTION_CODE = 'CPP';
 
--- ===========================================================================================
--- 2. Sync governed segments from real ACM/mailfile history into DM_PADM_SEGMENT_1.
---    Same MERGE the "Sync governed segments from source" button on Create Segment runs --
---    use this instead if you'd rather not touch the dashboard. Insert-only, safe to re-run.
--- ===========================================================================================
 MERGE INTO DM_PADM_SEGMENT_1 AS T
 USING (
     SELECT SUGGESTED_SEGMENT_NAME AS SEGMENT_NAME, SOURCE AS SOURCE_NAME,
@@ -1465,12 +1292,6 @@ WHEN NOT MATCHED THEN INSERT (
 
 SELECT COUNT(*) AS segment_master_rows FROM DM_PADM_SEGMENT_1 WHERE ACTIVE_FLAG = TRUE;
 
--- ===========================================================================================
--- 3. Link every active governed segment to every campaign that already exists.
---    Demo convenience, not a production pattern -- idempotent, safe to re-run after step 2
---    finds more segments. Remove segments you don't want from a given campaign via "Remove
---    from Campaign" in Create Segment afterward.
--- ===========================================================================================
 INSERT INTO DM_PADM_CAMPAIGN_SEGMENT_1
     (CAMPAIGN_SEGMENT_ID, CAMPAIGN_ID, SEGMENT_ID, WORKING_VERSION_NUMBER, SEGMENT_STATUS,
      INITIALIZATION_METHOD, IS_CURRENT, CHANGE_REASON, ROW_VERSION)
@@ -1484,16 +1305,6 @@ WHERE S.ACTIVE_FLAG = TRUE
 
 SELECT COUNT(*) AS campaign_segment_links FROM DM_PADM_CAMPAIGN_SEGMENT_1 WHERE IS_CURRENT = TRUE;
 
--- =============================================================================================
--- 6. Pre Signature Page tracking table
--- =============================================================================================
--- -------------------------------------------------------------------------------------------
--- Pre Signature Page: 3 tracking fields carried forward from the previous
--- campaign per offer (Total Available Volume, Quantity, Owner/Approver) -- mirrors the legacy
--- Matrix Creation Tool's merge of the same 3 columns from last month's matrix file, but as a
--- real versioned table joined on OFFER_RESERVATION_CODE instead of a network-share Excel file
--- matched on free-text description.
--- -------------------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS DM_PADM_PRE_SIGNATURE_DETAIL
 (
     PRE_SIGNATURE_DETAIL_ID VARCHAR NOT NULL,

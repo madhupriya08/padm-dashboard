@@ -1,9 +1,6 @@
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 
--- =============================================================================================
--- assumption_tables.sql
--- =============================================================================================
 CREATE TABLE IF NOT EXISTS DM_PADM_CAMPAIGN_ASSUMPTION_VERSION
 (
     CAMPAIGN_ASSUMPTION_VERSION_ID VARCHAR NOT NULL,
@@ -54,9 +51,6 @@ CREATE TABLE IF NOT EXISTS DM_PADM_SEGMENT_ASSUMPTION_VERSION
     )
 );
 
--- =============================================================================================
--- calculation_and_snapshot_tables.sql
--- =============================================================================================
 CREATE TABLE IF NOT EXISTS DM_PADM_CALCULATION_RUN
 (
     CALCULATION_RUN_ID VARCHAR NOT NULL,
@@ -146,20 +140,6 @@ CREATE TABLE IF NOT EXISTS DM_PADM_SIGNATURE_PAGE_2_SNAPSHOT
     CREATED_TS TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
     CONSTRAINT PK_PADM_SIGNATURE_PAGE_2_SNAPSHOT PRIMARY KEY (SIGNATURE_PAGE_2_SNAPSHOT_ID)
 );
-
--- =============================================================================================
--- campaign_and_offer_tables.sql
--- =============================================================================================
--- IMPORTANT: DM_PADM_CAMPAIGN_1's STATUS check constraint below uses the OLD/ORIGINAL status
--- vocabulary (DISCOVERED/DRAFT/READY_FOR_REVIEW/COMPLETED/REOPENED). This is PRE-MIGRATION DDL --
--- the real, currently-running padm/ package uses NEW/DRAFT/IN_PROGRESS/PENDING_APPROVAL/APPROVED/
--- REJECTED instead (see padm/tabs/campaign_creation.py). deploy/01_schema.sql is the migration
--- that renames these -- do not treat this file's DISCOVERED/READY_FOR_REVIEW/COMPLETED/REOPENED
--- values as current; they are historical.
---
--- Also note: DM_PADM_CAMPAIGN_OFFER below has NO CREDIT_BUREAU_MODEL/SCORE/CRS_MODEL/NRM columns
--- (only CRS_SCORE) -- wire_credit_bureau_fields.sql is what adds those 4 columns later.
-
 
 CREATE TABLE IF NOT EXISTS DM_PADM_CAMPAIGN_1
 (
@@ -335,13 +315,6 @@ CREATE TABLE IF NOT EXISTS DM_PADM_CAMPAIGN_OFFER_PROFILE
     )
 );
 
--- =============================================================================================
--- cde_ems_tables.sql
--- =============================================================================================
--- INCOMPLETE: VW_PADM_CDE_DETAIL_CURRENT's SELECT list and FROM/closing are missing below.
--- No EMS rate table (DM_PADM_EMS_RATE_VERSION) is defined here despite the filename.
-
-
 CREATE TABLE IF NOT EXISTS DM_PADM_CDE_LOAD_BATCH
 (
     CDE_LOAD_BATCH_ID VARCHAR NOT NULL,
@@ -442,7 +415,6 @@ INNER JOIN DM_PADM_CDE_DETAIL AS D
 WHERE B.ACTIVE_FLAG = TRUE
   AND B.VALIDATION_STATUS = 'VALID';
 
--- Expected: no rows.
 SELECT
       CAMPAIGN_ID
     , SEGMENT_ID
@@ -454,9 +426,6 @@ GROUP BY
     , SEGMENT_ID
 HAVING COUNT(*) > 1;
 
--- =============================================================================================
--- history_tables.sql
--- =============================================================================================
 CREATE TABLE IF NOT EXISTS DM_PADM_HISTORY_LOAD_BATCH
 (
     HISTORY_LOAD_BATCH_ID VARCHAR NOT NULL,
@@ -510,8 +479,7 @@ CREATE TABLE IF NOT EXISTS DM_PADM_HISTORY_SEGMENT_MAP
     APPROVED_TS TIMESTAMP_NTZ,
     CREATED_BY VARCHAR NOT NULL DEFAULT CURRENT_USER(),
     CREATED_TS TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
-    -- TRANSCRIPTION UNCERTAIN: remaining columns and closing of this table, and the
-    -- beginning of DM_PADM_NRR_HISTORY_CELL, were not captured at this zoom level.
+
 );
 
 CREATE TABLE IF NOT EXISTS DM_PADM_NRR_HISTORY_CELL
@@ -547,9 +515,6 @@ CREATE TABLE IF NOT EXISTS DM_PADM_UNWIND_HISTORY_CELL
     CONSTRAINT PK_PADM_UNWIND_HISTORY_CELL PRIMARY KEY (UNWIND_HISTORY_CELL_ID)
 );
 
--- =============================================================================================
--- reference_and_audit_tables.sql
--- =============================================================================================
 CREATE TABLE IF NOT EXISTS DM_PADM_SOURCE_LOAD_BATCH
 (
     LOAD_BATCH_ID VARCHAR NOT NULL,
@@ -656,9 +621,6 @@ CREATE TABLE IF NOT EXISTS DM_PADM_LIFT_TIER_RULE
     CONSTRAINT PK_PADM_LIFT_TIER_RULE PRIMARY KEY (LIFT_TIER_RULE_ID)
 );
 
--- =============================================================================================
--- segment_and_allocation_tables.sql
--- =============================================================================================
 CREATE TABLE IF NOT EXISTS DM_PADM_SEGMENT_1
 (
     SEGMENT_ID VARCHAR NOT NULL,
@@ -736,9 +698,6 @@ CREATE TABLE IF NOT EXISTS DM_PADM_OFFER_SEGMENT_ALLOCATION
     CONSTRAINT PK_PADM_OFFER_SEGMENT_ALLOCATION PRIMARY KEY (OFFER_SEGMENT_ALLOCATION_ID)
 );
 
--- =============================================================================================
--- selection_tables.sql
--- =============================================================================================
 CREATE TABLE IF NOT EXISTS DM_PADM_SELECTION_WORKING
 (
     CAMPAIGN_ID VARCHAR NOT NULL,
