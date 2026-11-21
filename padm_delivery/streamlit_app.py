@@ -5,17 +5,12 @@ Signature Page, Create Segment, Campaign Assumptions, Population Description,
 Segment Viewer, Signature Page 2. The selected campaign lives in
 st.session_state["campaign_id"] and is shared by every tab.
 
-FIXED (2026-11-19): the prior version of this file called repository.campaign_header()
-directly and treated its return value as a dict with keys like "name"/"mail_date"/"version" --
-that function returns a raw DataFrame with real column names (CAMPAIGN_DISPLAY_NAME,
-CURRENT_WORKING_VERSION_NUMBER, etc.), so every campaign["..."] access here would have raised a
-KeyError the first time a campaign was selected. It also rendered its own header above the tabs
-while every tab *also* renders one via ui.require_campaign() -> ui.header_bar(), so campaigns
-would have shown two headers. Both fixed: campaign data now goes through ui.campaign_context()
-(the function that already builds the correct dict, proven working everywhere else in the app),
-and this file no longer renders a second, competing header -- each tab's own header stays the
-single source of truth for campaign status/version/lock state. What's new here is purely
-cosmetic: page shell, branding bar, and the landing screen.
+Campaign data goes through ui.campaign_context() (not repository.campaign_header() directly --
+that returns a raw DataFrame with real column names like CAMPAIGN_DISPLAY_NAME and
+CURRENT_WORKING_VERSION_NUMBER, not a dict with keys like "name"/"mail_date"/"version").
+This file renders no header of its own -- each tab's own header (via ui.require_campaign() ->
+ui.header_bar()) stays the single source of truth for campaign status/version/lock state.
+What's here is purely the page shell, branding bar, and the landing screen.
 """
 
 import streamlit as st
@@ -27,6 +22,7 @@ from padm.tabs import (
     campaign_creation,
     create_segment,
     population_description,
+    pre_signature_page,
     segment_viewer,
     signature_page,
     signature_page_2,
@@ -37,6 +33,7 @@ st.set_page_config(page_title="PADM Sign-Off Dashboard", page_icon=":material/fa
 TABS = [
     ("Campaign Creation", ":material/add_box:", campaign_creation),
     ("Signature Page", ":material/description:", signature_page),
+    ("Pre Signature Page", ":material/checklist:", pre_signature_page),
     ("Create Segment", ":material/group_add:", create_segment),
     ("Campaign Assumptions", ":material/tune:", campaign_assumptions),
     ("Population Description", ":material/pie_chart:", population_description),

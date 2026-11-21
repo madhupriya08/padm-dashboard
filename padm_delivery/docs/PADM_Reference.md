@@ -81,7 +81,7 @@ the generic, definitions-driven UI from showing it as a segment override. Fixed 
 removed the redundant manual-override section (and the 3 Offers/Quantity/Segmented-offers
 metric tiles) from Signature Page.
 
-**Files**: `sql/deploy/01_schema.sql`, a live `UPDATE` on `DM_PADM_ASSUMPTION_DEFINITION`,
+**Files**: `sql/deploy/padm_deploy.sql` (Schema section), a live `UPDATE` on `DM_PADM_ASSUMPTION_DEFINITION`,
 `padm/tabs/signature_page.py`
 
 ### Signature Page: one row per segment
@@ -118,7 +118,7 @@ Type, Promo, IVR) now show as a distinct-value summary instead of silently picki
   `DM_PADM_SCORE_RANGE_RULE_1`.
 
 **Files**: `padm/tabs/create_segment.py`, `padm/repository.py`,
-`sql/deploy/04_segment_source_candidate_rebuild.sql`, `sql/deploy/05_manual_fixes_and_seeds.sql`
+`sql/deploy/padm_deploy.sql` (sections 4-5)
 
 ### Many-to-many offer ↔ segment allocation
 > *"it is many to many... let's not fix the score range for this but ... population description

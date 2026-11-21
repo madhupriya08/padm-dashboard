@@ -93,7 +93,7 @@ over anything else, including this handoff.
 Got full real `padm/` package via screenshots (previously only had the unverified
 `padm_delivery/` reconstruction). Confirmed real, and applied to `padm_delivery/` in this repo:
 
-1. **`VW_PADM_SIGNATURE_PAGE_LIVE`** (`padm_delivery/sql/deploy/02_views.sql`) was missing
+1. **`VW_PADM_SIGNATURE_PAGE_LIVE`** (`padm_delivery/sql/deploy/padm_deploy.sql`, Views section) was missing
    `CRS_MODEL`/`NRM` entirely and didn't join `VW_PADM_ACM_OFFER_SOURCE` at all -- the
    reconstruction's version was a wrong guess (a thin wrapper over `VW_PADM_SIGNATURE_PAGE_ALL`
    that doesn't match the real object). Replaced with the real, standalone view definition,
@@ -147,7 +147,7 @@ was never found in any source despite being in that file -- flagged, not fabrica
   uploaded to their real workspace, of this project's own `dashboard_build/sql/20_additional_procedures_and_views.sql`
   (confirmed via distinctive comment text only this conversation wrote -- the Section 3 removal
   note about the redundant `SP_PADM_TRANSITION_CAMPAIGN_STATUS`, and the Section 6 credit-bureau
-  note). Copied verbatim into `padm_delivery/sql/reference_from_live_snowflake/additional_procedures_and_views.sql` -- no
+  note). Copied verbatim into `padm_delivery/sql/reference_from_live_snowflake/reference_procedures.sql` (additional_procedures_and_views.sql section) -- no
   re-transcription needed, already verbatim-known content.
 - **`new_validations.sql`** -- a real debugging/scratch file (not a deployment script), captured
   via 3 photos. Contains ad hoc exploration SELECTs/DESCs against the live schema, 3 one-time
@@ -155,9 +155,9 @@ was never found in any source despite being in that file -- flagged, not fabrica
   `DM_PADM_TR_MAILFILE_NORMALIZED`), and -- important -- direct evidence that the user flagged
   `VW_PADM_SIGNATURE_PAGE_ALL` and the pre-fix `VW_PADM_SIGNATURE_PAGE_LIVE` as **"WRONG JOINS"**,
   followed by the corrected `CREATE OR REPLACE VIEW` they wrote. That corrected view matches
-  `padm_delivery/sql/deploy/02_views.sql`'s current `VW_PADM_SIGNATURE_PAGE_LIVE` verbatim (the fix from
+  `padm_delivery/sql/deploy/padm_deploy.sql`'s current `VW_PADM_SIGNATURE_PAGE_LIVE` verbatim (the fix from
   section 4a above is confirmed to be this same, real, applied fix -- not superseded by anything
-  newer). Saved to `padm_delivery/sql/reference_from_live_snowflake/new_validations.sql` with a transcription-confidence note at
+  newer). Saved to `padm_delivery/sql/reference_from_live_snowflake/reference_patches_and_validations.sql` (new_validations.sql section) with a transcription-confidence note at
   the top (lines 1-42, from a rotated photo, have a couple of TRANSCRIPTION UNCERTAIN inline
   comments; lines 43-94, the view DDL, are high-confidence, read from clear photos).
 
@@ -222,7 +222,7 @@ Large batch of real fixes to `padm/tabs/create_segment.py` (full file sent to th
 **Critical: `VW_PADM_SEGMENT_SOURCE_CANDIDATE` had to be rebuilt.** Its original definition (real,
 confirmed via `GET_DDL` earlier this session) read from `DM_PADM_TR_MAILFILE_NORMALIZED`, which
 the user confirmed is **not part of this project** and dropped it. The rebuild is at
-`padm_delivery/sql/deploy/04_segment_source_candidate_rebuild.sql` -- sources directly from
+`padm_delivery/sql/deploy/padm_deploy.sql` (section 4) -- sources directly from
 `CSTONE_BIZ.REFERENCE.T_EXPERIAN_MAILFILE`/`T_TRANSUNION_MAILFILE` (real tables, confirmed via
 their actual data dictionaries), bands the raw `PRESCREEN_VANTAGE_V3`/`V4`/`LIFT_SCORE` columns
 against `DM_PADM_SCORE_RANGE_RULE_1` (not the no-suffix one), and leaves `ANNUAL_FEE`/`NETWORK`/
