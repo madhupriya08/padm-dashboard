@@ -1,28 +1,27 @@
 -- Rebuild of VW_PADM_SEGMENT_SOURCE_CANDIDATE, sourced from the real project tables
 -- (CSTONE_BIZ.REFERENCE.T_EXPERIAN_MAILFILE / T_TRANSUNION_MAILFILE) instead of
--- DM_PADM_TR_MAILFILE_NORMALIZED (dropped 2026-11-19 -- confirmed not part of this project).
+-- DM_PADM_TR_MAILFILE_NORMALIZED (not part of this project).
 --
--- Column list is unchanged from the original view (confirmed via GET_DDL earlier this session),
--- so repository.discover_segments()'s MERGE needs no changes -- it just reads this view by name.
+-- Column list is unchanged from the original view, so repository.discover_segments()'s MERGE
+-- needs no changes -- it just reads this view by name.
 --
 -- Simplifications made, and why:
---   - ANNUAL_FEE / NETWORK / MAIL_REMAIL are NULL here. The raw mailfile tables (confirmed via
---     their real data dictionaries) don't carry these -- they're offer/program-level attributes,
---     not prospect-level. Safe to leave NULL: DM_PADM_SEGMENT_1 has all three as nullable
---     columns (confirmed via DESC TABLE), and Create Segment's own form never requires them.
+--   - ANNUAL_FEE / NETWORK / MAIL_REMAIL are NULL here. The raw mailfile tables don't carry
+--     these -- they're offer/program-level attributes, not prospect-level. Safe to leave NULL:
+--     DM_PADM_SEGMENT_1 has all three as nullable columns, and Create Segment's own form never
+--     requires them.
 --   - CAMPAIGN_SOURCE / CAMPAIGN_SCORE_SEGMENT (seen in both raw tables) were NOT used -- they're
 --     internal letter/number codes (e.g. 'A','V','1'..'9') with no decode table available, and
 --     PROSPECT_TYPE / PROSPECT_SOURCE already give the same classification in clean, readable form.
 --   - BUREAU_SCORE_TYPE / SCORE_MIN / SCORE_MAX come from banding the RAW numeric score columns
 --     (PRESCREEN_VANTAGE_V3, PRESCREEN_VANTAGE_V4, LIFT_SCORE) against DM_PADM_SCORE_RANGE_RULE_1
 --     (the "_1" table -- the one the app actually reads elsewhere, not the no-suffix
---     DM_PADM_SCORE_RANGE_RULE) via a SCORE_MIN/SCORE_MAX BETWEEN join. Confirmed real ranges:
---     Experian VS3 4-823, VS4 0-850, LIFT 500-807; TransUnion VS3 0-730 (the low sentinel values
---     like 0/4 naturally fail to match any real band and are dropped by the INNER JOIN).
---   - TransUnion has no LIFT_SCORE column (confirmed from its data dictionary) -- no TRANSUNION +
---     LIFT branch exists here. The Create Segment dropdown shows LIFT for TransUnion anyway (the
---     user's explicit UI choice); selecting it will correctly hit "no active score-range rules"
---     until/unless real TransUnion LIFT data is found elsewhere.
+--     DM_PADM_SCORE_RANGE_RULE) via a SCORE_MIN/SCORE_MAX BETWEEN join. Real ranges: Experian
+--     VS3 4-823, VS4 0-850, LIFT 500-807; TransUnion VS3 0-730 (the low sentinel values like 0/4
+--     naturally fail to match any real band and are dropped by the INNER JOIN).
+--   - TransUnion has no LIFT_SCORE column -- no TRANSUNION + LIFT branch exists here. The Create
+--     Segment dropdown shows LIFT for TransUnion anyway; selecting it will correctly hit "no
+--     active score-range rules" until/unless real TransUnion LIFT data is found elsewhere.
 
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;

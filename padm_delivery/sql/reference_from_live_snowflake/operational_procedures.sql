@@ -1,13 +1,4 @@
--- Merged from 2 transcription passes: Sql database queries 3-4.pdf (SP_PADM_ACTIVATE_CAMPAIGN,
--- confirmed matches the GET_DDL-verified version from earlier in this project) and
--- Sql database queries 5-6.pdf (SP_PADM_SAVE_CAMPAIGN_ASSUMPTION, SP_PADM_ACTIVATE_CDE_VERSION).
--- Splice point verified clean: both passes captured the identical signature/cutoff text.
-
--- [Transcribed from Sql database queries 4.pdf, pages 1-24 -- fork covering queries 3-4.pdf]
--- Covers the full SP_PADM_ACTIVATE_CAMPAIGN procedure (lines 1-371) plus the start of
--- SP_PADM_SAVE_CAMPAIGN_ASSUMPTION (lines 373-384), which is CUT OFF because page 24 was the
--- last page of this PDF (24 pages total, confirmed via pypdf). The rest of
--- SP_PADM_SAVE_CAMPAIGN_ASSUMPTION's body, and any procedures after it, were not captured.
+-- SP_PADM_ACTIVATE_CAMPAIGN, SP_PADM_SAVE_CAMPAIGN_ASSUMPTION, SP_PADM_ACTIVATE_CDE_VERSION.
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 

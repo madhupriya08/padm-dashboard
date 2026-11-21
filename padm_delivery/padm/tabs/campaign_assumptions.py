@@ -54,10 +54,10 @@ def _history_with_diffs(history, codes):
 
 def _campaign_level(session, campaign, definitions):
     st.subheader("Campaign-level assumptions")
-    # NBR restored (2026-11-19, later same day): it's the documented fallback for Base NRR when
-    # no historical NRR cell exists ("Base NRR = Boarded Count / Mail Quantity; fallback segment
-    # -> campaign NBR" -- see formulas.GRIDS). Historical NRR data isn't loaded yet, so without
-    # this input Base NRR (and everything downstream of it) has no value at all.
+    # NBR is the documented fallback for Base NRR when no historical NRR cell exists
+    # ("Base NRR = Boarded Count / Mail Quantity; fallback segment -> campaign NBR" -- see
+    # formulas.GRIDS). Historical NRR data isn't loaded yet, so without this input Base NRR
+    # (and everything downstream of it) has no value at all.
     defs = definitions[definitions["CAMPAIGN_COLUMN"].notna()]
     current = repository.campaign_assumption_current(session, campaign["id"])
     version = int(current.iloc[0]["VERSION_NUMBER"]) if not current.empty else 0
@@ -93,17 +93,16 @@ def _campaign_level(session, campaign, definitions):
         st.dataframe(history, hide_index=True) if not history.empty else st.caption("No versions yet.")
 
 
-# REMOVED (2026-11-19, user's explicit call): segment-level assumptions no longer shown on this
-# page -- Segment Viewer is now the single place to edit segment-level overrides (CPP, Unit Cost,
-# Rate Adjustment, Seasonality, Unwind Rate Adjustment).
+# Segment-level assumptions are not shown on this page -- Segment Viewer is the single place
+# to edit segment-level overrides (CPP, Unit Cost, Rate Adjustment, Seasonality, Unwind Rate
+# Adjustment).
 #
-# FLAGGED, not silently dropped: NBR's segment override (NBR_OVERRIDE, ASSUMPTION_LEVEL=
-# 'CAMPAIGN_SEGMENT') has ENTERED_ON = 'ASSUMPTIONS' in DM_PADM_ASSUMPTION_DEFINITION's seed --
-# i.e. it was only ever editable here, not on Segment Viewer (whose _segment_inputs() only shows
-# codes with ENTERED_ON in ('SEGMENT_VIEWER', 'BOTH')). Removing this section makes NBR_OVERRIDE
-# unreachable from any UI. If NBR needs a segment-level override, change its ENTERED_ON to 'BOTH'
-# in 01_schema.sql's seed (same fix already applied to CPP) so it picks up on Segment Viewer
-# automatically -- don't silently leave it stranded.
+# Note: NBR's segment override (NBR_OVERRIDE, ASSUMPTION_LEVEL='CAMPAIGN_SEGMENT') has
+# ENTERED_ON = 'ASSUMPTIONS' in DM_PADM_ASSUMPTION_DEFINITION's seed -- i.e. it is only
+# editable here, not on Segment Viewer (whose _segment_inputs() only shows codes with
+# ENTERED_ON in ('SEGMENT_VIEWER', 'BOTH')). Without a campaign-level section for it, NBR_OVERRIDE
+# is unreachable from any UI. If NBR needs a segment-level override, change its ENTERED_ON to
+# 'BOTH' in 01_schema.sql's seed (same as CPP) so it picks up on Segment Viewer automatically.
 
 
 def render(session):

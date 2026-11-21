@@ -1,7 +1,5 @@
--- From Sql database queries 2.pdf, pages 13-16 (COMPLETE, ends cleanly at "HAVING COUNT(*) > 1;").
 -- This is the real discover_campaign() MERGE that padm/repository.py's discover_campaign calls
--- into (confirmed matching logic, including the plural/singular SOURCE_CAMPAIGN_IDENTIFICATION_CODES
--- mapping already flagged elsewhere in this project).
+-- into, including the plural/singular SOURCE_CAMPAIGN_IDENTIFICATION_CODES mapping.
 --
 -- NOTE: uses the OLD status vocabulary (DISCOVERED/DRAFT/COMPLETED/REOPENED) -- see
 -- campaign_and_offer_tables.sql's note. Pre-migration.

@@ -359,13 +359,13 @@ $$;
 --    updates SP_PADM_ACTIVATE_CAMPAIGN to populate them from VW_PADM_ACM_OFFER_SOURCE, which
 --    already exposes all 4). Run 30_... before/with this file, or these will be NULL until applied.
 --
---    SUPERSEDED (2026-11-19): the real, live view in Snowsight (captured in new_validations.sql,
---    which also records it was replaced because the version below had "WRONG JOINS") instead
---    LEFT JOINs VW_PADM_ACM_OFFER_SOURCE directly (alias SRC) on OFFER_RESERVATION_CODE, takes
---    CRS_MODEL/NRM from SRC (not O), and COALESCEs NETWORK/ANNUAL_FEE_YR1/YR2 between SRC and
---    T_ACM_PROGRAMS (P). That corrected version is already applied in padm_delivery/sql/02_views.sql
---    -- this copy's VW_PADM_SIGNATURE_PAGE_LIVE below is kept only for historical/gap-fill-script
---    context; 02_views.sql is the one that matters.
+--    SUPERSEDED: the real, live view in Snowsight (see new_validations.sql, which also records
+--    it was replaced because the version below had "WRONG JOINS") instead LEFT JOINs
+--    VW_PADM_ACM_OFFER_SOURCE directly (alias SRC) on OFFER_RESERVATION_CODE, takes CRS_MODEL/NRM
+--    from SRC (not O), and COALESCEs NETWORK/ANNUAL_FEE_YR1/YR2 between SRC and T_ACM_PROGRAMS (P).
+--    That corrected version is already applied in padm_delivery/sql/deploy/02_views.sql -- this
+--    copy's VW_PADM_SIGNATURE_PAGE_LIVE below is kept only for historical context;
+--    deploy/02_views.sql is the one that matters.
 -- ===========================================================================================
 CREATE OR REPLACE VIEW VW_PADM_SIGNATURE_PAGE_LIVE AS
 WITH TIMES_MAILED_0 AS (

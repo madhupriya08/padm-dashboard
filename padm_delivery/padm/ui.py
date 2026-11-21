@@ -158,8 +158,8 @@ def grid_height(grid, extra_rows=0):
 
 
 def _grid_cell_text(value, fmt):
-    """Only non-zero values are shown (user's explicit call, matching the real Segment.xlsx) --
-    NULL and exact-zero cells render blank, not '0' / '0.00%' / '-'."""
+    """Only non-zero values are shown, matching the real Segment.xlsx -- NULL and exact-zero
+    cells render blank, not '0' / '0.00%' / '-'."""
     if value is None or (isinstance(value, float) and math.isnan(value)) or pd.isna(value):
         return ""
     try:
@@ -309,11 +309,11 @@ SEGMENT_LEVEL_COLUMNS = {
 
 
 def collapse_to_segment(rows):
-    """Signature Page (Tab 2) shows one row per segment, not one per offer (user's explicit call,
-    2026-11-19). Also fixes a real pre-existing issue, not just a cosmetic one: because the
-    segment-level calculated columns above are repeated identically across every offer row in a
-    segment, summing them per-offer (the old flat display) inflated GRAND TOTAL by that segment's
-    offer count. Collapsing first means each segment's numbers are only counted once.
+    """Collapses to one row per segment, not one per offer. Also fixes a real pre-existing issue,
+    not just a cosmetic one: because the segment-level calculated columns above are repeated
+    identically across every offer row in a segment, summing them per-offer (the old flat display)
+    inflated GRAND TOTAL by that segment's offer count. Collapsing first means each segment's
+    numbers are only counted once.
 
     Offer-level columns that vary between offers in the same segment are shown as a distinct-value
     summary rather than silently picking one and discarding the rest."""

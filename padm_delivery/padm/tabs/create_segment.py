@@ -7,8 +7,7 @@ from padm.formulas import TIMES_MAILED_BUCKETS
 
 SCOPE = "create_segment"
 DEFAULT_SOURCES = ["EXPERIAN", "TRANSUNION"]
-# LIFT restricted to TransUnion only per the user's explicit call (2026-11-19, reversing the
-# earlier "both bureaus" choice). NOTE this contradicts Credit One's own T_EXPERIAN_MAILFILE /
+# LIFT is restricted to TransUnion only here. NOTE this contradicts the real T_EXPERIAN_MAILFILE /
 # T_TRANSUNION_MAILFILE data dictionaries, which show LIFT_SCORE existing only in
 # T_EXPERIAN_MAILFILE -- T_TRANSUNION_MAILFILE has no LIFT_SCORE column at all. This is a
 # UI-only choice: no DM_PADM_SCORE_RANGE_RULE_1 bands exist for LIFT yet (either bureau), so
@@ -23,21 +22,18 @@ SOURCE_SCORE_TYPES = {
 NONE = "— none —"
 
 # (form field, label, dropdown field in VW_PADM_SEGMENT_DROPDOWN_60D or fixed options)
-# Trimmed to exactly the fields Sgn-off_proposal.pdf's "Segment Creation" section lists (Bureau
-# Score Type / Range / Source are mandatory fields above, shown separately). PROSPECT_SEGMENT_TYPE,
-# CREDIT_BUREAU_MODEL, CREDIT_BUREAU_SCORE, CRS_MODEL, CRS_SCORE were here before but aren't in
-# that list -- they belong to Campaign Creation's separate offer-grouping dropdowns, not this tab.
+# Trimmed to exactly the fields the Segment Creation spec lists (Bureau Score Type / Range /
+# Source are mandatory fields above, shown separately). CREDIT_BUREAU_MODEL, CREDIT_BUREAU_SCORE,
+# CRS_MODEL, CRS_SCORE belong to Campaign Creation's separate offer-grouping dropdowns, not this tab.
 OPTIONAL_FIELDS = [
     ("ANNUAL_FEE", "Annual Fee", "ANNUAL_FEE"),
     ("NETWORK", "Network", "NETWORK"),
     ("MLA_FLAG", "MLA", ["Y", "N"]),
     ("RISK_SCORE_TYPE", "Risk Score Type", "CRS_MODEL"),
     ("RESPONSE_MODEL_TYPE", "Response Model Type", "RESPONSE_MODEL_TYPE"),
-    # Re-added (2026-11-19, user's explicit call): Sgn-off_proposal.pdf's Segmentation Creation
-    # list has "Prospect Type (Prospecting, Retargeting)" as its own field -- it was dropped in
-    # the earlier OPTIONAL_FIELDS trim by mistake, lumped in with fields that really don't belong
-    # here. Backend already supports it (SEGMENT_OPTIONAL_FIELDS in repository.py); only the form
-    # input was missing. Left blank, create_segment() still defaults it to 'ALL' as before.
+    # The Segmentation Creation spec lists "Prospect Type (Prospecting, Retargeting)" as its own
+    # field. Backend already supports it (SEGMENT_OPTIONAL_FIELDS in repository.py); only the
+    # form input was missing. Left blank, create_segment() still defaults it to 'ALL'.
     ("PROSPECT_SEGMENT_TYPE", "Prospect Type", ["PROSPECTING", "RETARGETING"]),
 ]
 

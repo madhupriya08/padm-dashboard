@@ -1,5 +1,3 @@
--- [Transcribed from Sql database queries 4.pdf, pages 1-20 -- fork covering queries 3-4.pdf]
--- Fully captured, lines 1-92 of the real file.
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 

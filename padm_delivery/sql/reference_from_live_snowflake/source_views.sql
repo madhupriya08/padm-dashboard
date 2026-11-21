@@ -1,15 +1,6 @@
--- Merged from 2 transcription passes: Sql database queries 5-6.pdf (lines ~1-395, VW_PADM_ACM_CAMPAIGN_CANDIDATE
--- complete + VW_PADM_ACM_OFFER_SOURCE's start) and Sql database queries 7.pdf (lines ~396-498, the tail end
--- of VW_PADM_ACM_OFFER_SOURCE's WHERE clause + validation queries). A genuine gap exists where they meet:
--- neither pass fully captured lines ~397-426 (part of the WHERE clause) -- both passes independently flagged
--- this, it is not an artifact of this merge. Get a fresh screenshot of exactly that range if it matters.
-
--- TRANSCRIBED from "Sql database queries 6.pdf" photos of a local VS Code editor
--- (workspace "padm_phase1"), tab "source_views.sql".
--- PARTIAL: captured through line 436 (this PDF ends at page 24, mid-WHERE-clause of
--- VW_PADM_ACM_OFFER_SOURCE). Whatever follows (the rest of this view's WHERE clause, and
--- any further views after it) was NOT captured in this pass -- check later source files
--- (e.g. "Final sql database queries and documentation 1.pdf") for the rest.
+-- INCOMPLETE: a gap exists around lines ~397-426 (part of VW_PADM_ACM_OFFER_SOURCE's WHERE
+-- clause) and whatever follows the WHERE clause -- including any further views after it -- is
+-- missing below. Confirm against the live objects before relying on this file past that point.
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 
@@ -438,30 +429,14 @@ WHERE O.CAMPAIGN_GROUP_MAIL_DATE IS NOT NULL
             O.CAMPAIGN_OFFER_RESERVATION_CODE
         )
     )
--- TRANSCRIPTION CUT OFF HERE: "Sql database queries 6.pdf" ends at page 24 (this point),
--- mid-WHERE-clause of VW_PADM_ACM_OFFER_SOURCE (a length comparison, e.g. "<= 6", and
--- whatever FROM/JOIN/closing follows was not captured). Any further views after this one
--- were also not captured.
+-- INCOMPLETE/UNRELIABLE from here: this and the fragment below are two overlapping, incomplete
+-- captures of the same WHERE clause, with a real gap between them (part of the clause is
+-- missing from both) and an incomplete UPPER(...) expression. Confirm against the live view
+-- before relying on either fragment.
 
--- =============================================================
--- CONTINUATION from Sql database queries 7.pdf (see merge note above this file)
--- =============================================================
--- TRANSCRIBED from "Sql database queries 7.pdf" (14 pages, fully read).
--- This fragment shows the TAIL END of source_views.sql (validation queries at the bottom of
--- the file), lines ~396-498 per the editor's own line numbers in the screenshots. The rest of
--- source_views.sql (the actual CREATE VIEW statements for VW_PADM_ACM_CAMPAIGN_CANDIDATE,
--- VW_PADM_ACM_OFFER_SOURCE, etc., presumably lines 1-395) was NOT visible in this PDF.
---
--- TRANSCRIPTION UNCERTAIN: lines 396-426 (between "WHERE O.CAMPAIGN_GROUP_MAIL_DATE IS NOT
--- NULL" and "AND UPPER(...) NOT LIKE 'W%'") were not shown in the screenshots -- there's a
--- visible line-number gap (396 -> 427) in the source editor itself, meaning intervening lines
--- genuinely weren't captured in this pass, not merely cropped from view.
-
--- ~line 396
 WHERE O.CAMPAIGN_GROUP_MAIL_DATE IS NOT NULL
--- TRANSCRIPTION CUT OFF HERE: lines 397-426 not captured in this PDF.
   AND UPPER(
-      -- TRANSCRIPTION UNCERTAIN: inner expression of this UPPER(...) not clearly visible
+      -- inner expression not captured
   ) NOT LIKE 'W%'
 
   AND LENGTH(

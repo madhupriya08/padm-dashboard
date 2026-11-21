@@ -1,9 +1,7 @@
--- TRANSCRIPTION NOTE: this file continues past line 119 -- it was the last page available in
--- the two source PDFs (New sql1.pdf, New sql2.pdf) assigned for this transcription pass. The
--- rest of SP_PADM_ACTIVATE_CAMPAIGN (DM_PADM_CAMPAIGN_SOURCE_COMPONENT insert, the offer insert,
--- the profile insert, the final UPDATE DM_PADM_CAMPAIGN_1 SET STATUS = 'DRAFT', the
--- EXCEPTION block, etc.) was NOT captured and is not in this file. Someone needs to
--- re-open padm_spec_alignment_03b_activate.sql directly in the workspace to get the rest.
+-- INCOMPLETE: this file stops partway through SP_PADM_ACTIVATE_CAMPAIGN. Missing: the
+-- DM_PADM_CAMPAIGN_SOURCE_COMPONENT insert, the offer insert, the profile insert, the final
+-- UPDATE DM_PADM_CAMPAIGN_1 SET STATUS = 'DRAFT', and the EXCEPTION block. Do not run as-is --
+-- get the complete procedure body before deploying.
 
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;

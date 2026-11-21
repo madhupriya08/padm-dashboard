@@ -1,11 +1,8 @@
--- [Transcribed from Sql database queries 3.pdf, pages 1-20 -- fork covering queries 3-4.pdf]
--- Fully captured, lines 1-49 of the real file.
--- TRANSCRIPTION NOTE: this file's VW_PADM_CDE_GRID_CURRENT definition reads from
--- VW_PADM_CDE_DETAIL_CURRENT. A SECOND, DIFFERENT definition of the same view name appears in
--- current_state_views.sql (reading directly from DM_PADM_CDE_DETAIL + DM_PADM_CDE_LOAD_BATCH
--- instead). Since CREATE OR REPLACE means whichever runs last wins, and the real execution
--- order between these two files is not confirmed, do not assume either is "the" definition --
--- flag this to the user rather than guessing which one is authoritative.
+-- NOTE: this file's VW_PADM_CDE_GRID_CURRENT definition reads from VW_PADM_CDE_DETAIL_CURRENT.
+-- A SECOND, DIFFERENT definition of the same view name appears in current_state_views.sql
+-- (reading directly from DM_PADM_CDE_DETAIL + DM_PADM_CDE_LOAD_BATCH instead). Since
+-- CREATE OR REPLACE means whichever runs last wins, confirm the real execution order between
+-- these two files before assuming either is "the" definition.
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 

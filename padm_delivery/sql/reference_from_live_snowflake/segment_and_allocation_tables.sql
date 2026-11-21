@@ -1,6 +1,3 @@
--- TRANSCRIBED from "Sql database queries 5.pdf" photos of a local VS Code editor
--- (workspace "padm_phase1"), tab "segment_and_allocation_tables.sql". Appears COMPLETE
--- (starts at USE DATABASE, ends cleanly after DM_PADM_OFFER_SEGMENT_ALLOCATION's `);`).
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 

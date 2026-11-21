@@ -1,12 +1,12 @@
--- One-time fixes and data seeds from this session. Run each section once, in order.
--- Run AFTER segment_source_candidate_rebuild.sql (that file rebuilds the view this one reads).
+-- One-time fixes and data seeds. Run each section once, in order.
+-- Run AFTER 04_segment_source_candidate_rebuild.sql (that file rebuilds the view this one reads).
 
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 
 -- ===========================================================================================
 -- 1. CPP fix: make it a real segment-level override, not campaign-only.
---    The seed in sql/01_schema.sql now has the right value for a fresh deploy, but that MERGE
+--    The seed in 01_schema.sql now has the right value for a fresh deploy, but that MERGE
 --    only inserts new rows -- it won't touch the CPP row that already exists. Run this instead.
 -- ===========================================================================================
 UPDATE DM_PADM_ASSUMPTION_DEFINITION

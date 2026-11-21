@@ -1,14 +1,13 @@
 """Tab 5 -- Population Description (spec 6): pick one or more segments, give them a shared
 population-description label, and set each segment's own offers. An offer can belong to any
-number of segments -- many-to-many is intentional (confirmed with the user 2026-11-19): a shared
-offer's full Quantity/Boards/$ counts independently in each segment it's allocated to, so the
-Grand Total below can be larger than the sum of distinct offers mailed.
+number of segments -- many-to-many is intentional: a shared offer's full Quantity/Boards/$
+counts independently in each segment it's allocated to, so the Grand Total below can be larger
+than the sum of distinct offers mailed.
 
-Redesigned from the earlier Annual-Fee/Score-Band grouped layout (called "overwhelming") to a
-segment-first flow: pick which segments this population description covers (one or several --
-"a set of segments", per the user), then edit each one's own offers below. The label is free
-text -- no dependency on DM_PADM_POPULATION_GROUP_RULE (confirmed unnecessary; the real
-Signature Page export's "Sub-Total ..." rows are themselves just free text saved per allocation).
+Segment-first flow: pick which segments this population description covers (one or several --
+a set of segments), then edit each one's own offers below. The label is free text -- no
+dependency on DM_PADM_POPULATION_GROUP_RULE (the real Signature Page export's "Sub-Total ..."
+rows are themselves just free text saved per allocation).
 A suggested default is prefilled per the first selected segment (Sub-Total <source> <band>, or
 Sub-Total MLA <band>, matching the two patterns seen in that export) -- a starting point to edit,
 not an exact match, since no governed table exists for "Core"/"Expansion"-style wording."""

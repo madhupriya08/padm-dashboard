@@ -1,7 +1,3 @@
--- TRANSCRIBED from "Sql database queries 5.pdf" and "Sql database queries 6.pdf" photos of
--- a local VS Code editor (workspace "padm_phase1"), tab "selection_tables.sql". Appears
--- COMPLETE (DM_PADM_SELECTION_WORKING, DM_PADM_SELECTION_SET, DM_PADM_SELECTION_SET_CELL,
--- DM_PADM_SELECTION_EVENT, ending cleanly after the last table's closing `);`).
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 

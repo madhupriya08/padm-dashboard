@@ -1,7 +1,3 @@
-# TRANSCRIPTION INCOMPLETE: this file continues past line 298 (render() function and whatever
-# follows _calculated_grids has not been captured yet -- check Padm_tabs1.pdf pages 21-24,
-# or Padm_tabs2/3.pdf, for the rest).
-
 """Tab 6 -- Segment Viewer (spec 7): Excel-style Tier x Times Mailed selection and calculation
 grids for one segment, CDE upload, segment-level inputs, Working | Final Version toggle."""
 
@@ -82,9 +78,9 @@ def parse_cde_file(raw_bytes, file_name):
 def _segment_inputs(session, campaign, segment_id):
     """Rate Adjustment, Seasonality, Unwind Rate Adjustment, Unit Cost, CPP (spec 7.7).
 
-    Prepopulated from the campaign's latest assumptions (2026-11-19, user's explicit call) for
-    any field that has a campaign-level counterpart (CPP, Unit Cost) -- shown as the starting
-    value, still editable/overridable per segment. Fields with no campaign-level column at all
+    Prepopulated from the campaign's latest assumptions for any field that has a campaign-level
+    counterpart (CPP, Unit Cost) -- shown as the starting value, still editable/overridable per
+    segment. Fields with no campaign-level column at all
     (Rate Adjustment, Seasonality, Unwind Rate Adjustment -- segment-only by schema design) have
     nothing to inherit, so they still start blank."""
     definitions = repository.assumption_definitions(session)

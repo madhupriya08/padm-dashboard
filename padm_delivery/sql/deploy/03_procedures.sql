@@ -86,12 +86,6 @@ EXCEPTION WHEN OTHER THEN ROLLBACK; RAISE;
 END;
 $$;
 
--- TRANSCRIPTION UNCERTAIN: the DM_PADM_CHANGE_EVENT INSERT's BEFORE_VALUE subquery (around the
--- "V_CPP" reference) is ambiguous in the screenshot -- it appears to reference an undeclared
--- variable V_CPP instead of P_CPP, and the parenthesization around the OBJECT_CONSTRUCT/SELECT
--- is unclear. Verify this block against the live procedure body directly; do not trust this
--- transcription of that one statement without checking.
-
 -- -------------------------------------------------------------------------------------------
 -- Segment-level assumptions. NULL = inherit the campaign-level value. CPP is campaign-only and
 -- is carried forward from the previous segment version.
@@ -187,14 +181,6 @@ BEGIN
 EXCEPTION WHEN OTHER THEN ROLLBACK; RAISE;
 END;
 $$;
-
--- TRANSCRIPTION UNCERTAIN: SP_PADM_SAVE_SEGMENT_ASSUMPTION's exact parameter list/order (which
--- override comes with which column, and whether CPP_OVERRIDE is actually a parameter at all --
--- the screenshots showed it carried forward from the prior version rather than passed in,
--- consistent with the comment "CPP is campaign-only") was partly reconstructed from the INSERT
--- statement rather than directly read from the CREATE PROCEDURE parameter list, which was not
--- fully visible in order in the captured screenshots. Verify parameter names/order/types
--- against the live procedure before relying on this.
 
 -- -------------------------------------------------------------------------------------------
 -- Selection set save (spec 7.4): working -> immutable set + cells, SAVE audit event.

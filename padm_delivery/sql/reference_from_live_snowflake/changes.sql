@@ -1,7 +1,6 @@
--- [Transcribed from Sql database queries 3.pdf, pages 1-20 -- fork covering queries 3-4.pdf]
 -- Real filename in the Snowsight tree is "changes.sql" despite the content below being the
 -- core VW_PADM_SEGMENT_CALCULATION_CURRENT view, not column-diff "changes" -- kept as-is to
--- match the real tree rather than renamed to a content-matching guess.
+-- match the real tree.
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 
@@ -269,11 +268,10 @@ WHERE TABLE_SCHEMA = 'RISK_SBX'
   AND TABLE_NAME = 'VW_PADM_SEGMENT_CALCULATION_CURRENT'
   AND COLUMN_NAME IN
   (
-        -- TRANSCRIPTION UNCERTAIN: the exact 5 column names in this IN-list were on a
-        -- screenshot that wasn't captured (between page 20 and page 21 of the source PDF) --
-        -- almost certainly the 5 newest measure columns (NRR_SOURCE, UNWIND_SOURCE,
-        -- SELECTED_NRR, POST_UNWIND_CPA_UNIVERSE, POST_UNWIND_CPA_SELECTED), but not confirmed
-        -- verbatim. This is just a post-deployment check query, not load-bearing logic.
+        -- UNCERTAIN: the exact 5 column names in this IN-list are unconfirmed -- almost
+        -- certainly the 5 newest measure columns (NRR_SOURCE, UNWIND_SOURCE, SELECTED_NRR,
+        -- POST_UNWIND_CPA_UNIVERSE, POST_UNWIND_CPA_SELECTED), but not verified verbatim.
+        -- This is just a post-deployment check query, not load-bearing logic.
   )
 ORDER BY ORDINAL_POSITION;
 

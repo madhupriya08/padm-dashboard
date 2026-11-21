@@ -2,7 +2,7 @@ USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 
 -- -------------------------------------------------------------------------------------------
--- Pre Signature Page (2026-11-20): 3 tracking fields carried forward from the previous
+-- Pre Signature Page: 3 tracking fields carried forward from the previous
 -- campaign per offer (Total Available Volume, Quantity, Owner/Approver) -- mirrors the legacy
 -- Matrix Creation Tool's merge of the same 3 columns from last month's matrix file, but as a
 -- real versioned table joined on OFFER_RESERVATION_CODE instead of a network-share Excel file

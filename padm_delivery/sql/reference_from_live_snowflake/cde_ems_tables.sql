@@ -1,14 +1,5 @@
--- Merged: opening DDL (2 CREATE TABLE + 2 ALTER TABLE) from Sql database queries 2.pdf,
--- the view body + validation query from Sql database queries 3.pdf (both confirmed complete,
--- splice point verified -- the ALTER TABLE ... SOURCE_ROW_NUMBER statement appears
--- identically at the end of one pass and the (redundant, now removed) start of the other).
--- Still missing: no EMS rate table (DM_PADM_EMS_RATE_VERSION) found in either source despite
--- the filename -- may be in a source PDF not yet covered.
-
--- From Sql database queries 2.pdf, pages 21-24 (PARTIAL -- page 24 was the PDF's last page;
--- VW_PADM_CDE_DETAIL_CURRENT's SELECT list and FROM/closing are TRANSCRIPTION CUT OFF HERE,
--- not an error, genuinely not in this PDF. No EMS rate table (DM_PADM_EMS_RATE_VERSION) seen
--- in this PDF despite the filename -- it may be in a different source PDF not yet covered.
+-- INCOMPLETE: VW_PADM_CDE_DETAIL_CURRENT's SELECT list and FROM/closing are missing below.
+-- No EMS rate table (DM_PADM_EMS_RATE_VERSION) is defined here despite the filename.
 
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;

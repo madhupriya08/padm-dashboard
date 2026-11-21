@@ -149,9 +149,9 @@ GRIDS = [
      "Selected Booked Post-Unwind = Booked Pre-Unwind x (1 - Effective Unwind Rate)", None),
 ]
 
-# Row groups for the side-by-side layout (user's explicit call, matching the real Segment.xlsx
-# alignment): each inner list is a set of grid keys (from GRIDS above) shown side by side in one
-# horizontally-scrollable row, in this exact order top to bottom.
+# Row groups for the side-by-side layout, matching the Segment.xlsx alignment: each inner list
+# is a set of grid keys (from GRIDS above) shown side by side in one horizontally-scrollable
+# row, in this exact order top to bottom.
 GRID_ROWS = [
     ["mku", "post_ems", "selected"],
     ["base_nrr", "eff_nrr", "selected_nrr"],

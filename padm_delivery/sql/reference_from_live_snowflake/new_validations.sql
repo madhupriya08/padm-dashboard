@@ -1,15 +1,8 @@
--- Transcribed from 3 photos of the real, live Snowsight file (2026-11-19). Rotated/angled
--- photos, not a clean screen capture -- lines 1-42 (the ad hoc exploration queries) were read
--- from a photo rotated 180 degrees; trailing inline comments on lines 15, 18, 19 are TRANSCRIPTION
--- UNCERTAIN on exact wording (content/intent is clear, exact punctuation/spacing may be off).
--- Lines 43-94 (the CREATE OR REPLACE VIEW) were read from two clear, right-side-up photos and
--- match padm_delivery/sql/02_views.sql's VW_PADM_SIGNATURE_PAGE_LIVE verbatim -- high confidence.
---
--- This appears to be a real debugging/scratch file (not a deployment script): it contains ad hoc
--- SELECT/DESC exploration queries the user ran against the live schema, 3 one-time DROP TABLEs,
--- and -- importantly -- the record of VW_PADM_SIGNATURE_PAGE_LIVE (and _ALL) being flagged
--- "WRONG JOINS" (line 31-32) followed by the corrected CREATE OR REPLACE VIEW the user wrote to
--- fix it. That same corrected view is already live in padm_delivery/sql/02_views.sql.
+-- This is a debugging/scratch file (not a deployment script): it contains ad hoc SELECT/DESC
+-- exploration queries against the live schema, 3 one-time DROP TABLEs, and -- importantly --
+-- the record of VW_PADM_SIGNATURE_PAGE_LIVE (and _ALL) being flagged "WRONG JOINS" (line 31-32)
+-- followed by the corrected CREATE OR REPLACE VIEW that fixes it. That same corrected view is
+-- already live in padm_delivery/sql/deploy/02_views.sql.
 
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;

@@ -1,15 +1,3 @@
-"""padm/repository.py -- reconstructed by stitching 3 separately-transcribed screenshot
-passes into one file. See the trailing note for exactly what remains unverified."""
-
-# TRANSCRIPTION INCOMPLETE: this file is clearly 400+ lines (only lines 1-171 captured here,
-# out of what appeared to be the central, most-referenced module in padm/). Continues past
-# create_and_activate_campaign's try/except. Check Padm_tabs2.pdf (more pages may exist beyond
-# what was read) and Padm_tabs3.pdf / New_sql1-2.pdf / App_pages*.pdf for the rest -- every
-# tabs/*.py file transcribed so far calls dozens of repository.* functions not yet seen here
-# (e.g. campaign_segments, segment_assumption_current, selection_working, segment_calculation,
-# save_selections, snapshot_versions, snapshot_rows, run_calculation, generate_signature_page_2,
-# transition_status, and many more).
-
 """All SQL access for the PADM dashboard (reads and writes).
 
 Writes either CALL a SP_PADM_* procedure (which owns its transaction) or run inside
@@ -244,9 +232,8 @@ def previous_campaign(session, campaign_id):
 # ===========================================================================
 
 def signature_live(session, campaign_id):
-    # CONFIRMED REAL (2026-11-19): the reconstruction's ORDER BY referenced SCORE_MIN /
-    # SEGMENT_NAME / OFFER_RESERVATION_CODE -- none of which are columns VW_PADM_SIGNATURE_PAGE_LIVE
-    # actually outputs (would throw "invalid identifier"). Fixed to order by real output columns.
+    # Order by columns VW_PADM_SIGNATURE_PAGE_LIVE actually outputs -- SCORE_MIN / SEGMENT_NAME /
+    # OFFER_RESERVATION_CODE are not among them and would raise "invalid identifier".
     return df(
         session,
         f"""
@@ -585,9 +572,9 @@ def campaign_segments(session, campaign_id):
 
 def campaign_offers(session, campaign_id):
     """Every current offer for this campaign -- one row per offer, no segment join. An offer can
-    belong to any number of segments (many-to-many, confirmed 2026-11-19 -- its full Quantity/
-    Boards/$ count independently in EACH segment's totals, by design); use
-    offer_segment_allocations() for the offer<->segment links."""
+    belong to any number of segments (many-to-many -- its full Quantity/Boards/$ count
+    independently in EACH segment's totals, by design); use offer_segment_allocations() for
+    the offer<->segment links."""
     return df(
         session,
         f"""
@@ -645,9 +632,9 @@ def _working_version(session, campaign_id):
 
 
 def _insert_allocations(session, campaign_id, segment_id, offer_ids, reason, method, label=None):
-    """An offer may belong to any number of segments (many-to-many, 2026-11-19) -- this only
-    guards against a duplicate *(offer, segment)* row, not against the offer having other current
-    allocations to different segments."""
+    """An offer may belong to any number of segments (many-to-many) -- this only guards against
+    a duplicate *(offer, segment)* row, not against the offer having other current allocations
+    to different segments."""
     if not offer_ids:
         return 0
     rows = exec_sql(
@@ -871,8 +858,8 @@ def previous_allocation(session, campaign_id):
 def save_population_allocation(session, campaign_id, segment_offers, segment_labels, reason):
     """segment_offers: {segment_id: [offer ids]}; segment_labels: {segment_id: label}.
     Any segment whose offers or label changed gets new allocation versions (old ones retired).
-    An offer may appear under more than one segment_id -- many-to-many is intentional (2026-11-19):
-    its full Quantity/Boards/$ then count independently in each of those segments' totals."""
+    An offer may appear under more than one segment_id -- many-to-many is intentional: its full
+    Quantity/Boards/$ then count independently in each of those segments' totals."""
     _assert_editable(session, campaign_id)
     allocations = offer_segment_allocations(session, campaign_id)
     changed = 0
@@ -1097,12 +1084,3 @@ def load_cde_version(session, campaign_id, segment_id, raw_bytes, file_name, sco
     message = call_proc(session, "SP_PADM_ACTIVATE_CDE_VERSION", [batch_id, reason])
     seeded = ensure_working_grid(session, campaign_id, segment_id)
     return message, seeded
-
-# ===========================================================================
-# RECONSTRUCTION NOTE: this file was assembled from 3 separate screenshot-transcription
-# passes (repository.py lines 1-176, padm_repository_continued.py lines 9-745, and the
-# load_cde_version fragment above). It should match your real padm/repository.py closely,
-# but was never read end-to-end in one pass -- treat it as a diff reference, not a
-# verified drop-in replacement. padm/queries.py was never found in any of the 10 PDFs
-# shared and does not exist anywhere in this transcription at all.
-# ===========================================================================

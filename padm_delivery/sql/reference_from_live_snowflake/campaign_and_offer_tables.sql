@@ -1,16 +1,12 @@
--- From Sql database queries 2.pdf, pages 5-13 (COMPLETE).
---
 -- IMPORTANT: DM_PADM_CAMPAIGN_1's STATUS check constraint below uses the OLD/ORIGINAL status
 -- vocabulary (DISCOVERED/DRAFT/READY_FOR_REVIEW/COMPLETED/REOPENED). This is PRE-MIGRATION DDL --
 -- the real, currently-running padm/ package uses NEW/DRAFT/IN_PROGRESS/PENDING_APPROVAL/APPROVED/
--- REJECTED instead (confirmed from padm/tabs/campaign_creation.py). padm_spec_alignment_01_schema.sql
--- (already in the parent sql/ folder) is the migration that renames these -- do not treat this
--- file's DISCOVERED/READY_FOR_REVIEW/COMPLETED/REOPENED values as current; they are historical.
+-- REJECTED instead (see padm/tabs/campaign_creation.py). deploy/01_schema.sql is the migration
+-- that renames these -- do not treat this file's DISCOVERED/READY_FOR_REVIEW/COMPLETED/REOPENED
+-- values as current; they are historical.
 --
 -- Also note: DM_PADM_CAMPAIGN_OFFER below has NO CREDIT_BUREAU_MODEL/SCORE/CRS_MODEL/NRM columns
--- (only CRS_SCORE) -- confirms wire_credit_bureau_fields.sql (seen in the real file tree, not yet
--- transcribed) is what adds those 4 columns later, consistent with everything already confirmed
--- earlier in this project via live GET_DDL.
+-- (only CRS_SCORE) -- wire_credit_bureau_fields.sql is what adds those 4 columns later.
 
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;

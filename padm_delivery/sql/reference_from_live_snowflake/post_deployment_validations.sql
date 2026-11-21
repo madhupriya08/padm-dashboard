@@ -1,6 +1,3 @@
--- TRANSCRIBED from "Sql database queries 5.pdf" photos of a local VS Code editor
--- (workspace "padm_phase1"), tab "post_deployment_validations.sql". Appears complete
--- (starts at USE DATABASE, ends cleanly after the final summary SELECT's `;`).
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 

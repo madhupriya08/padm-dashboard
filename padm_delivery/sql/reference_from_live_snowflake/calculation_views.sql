@@ -128,13 +128,11 @@ SELECT
     , 'SEGMENT_FALLBACK' AS UNWIND_SOURCE
 FROM SEGMENT_FALLBACK AS F;
 
--- TRANSCRIPTION CUT OFF HERE: the source PDF (Sql_database_queries_1.pdf) ends mid-definition
--- of VW_PADM_SEGMENT_CALCULATION_CURRENT. Everything above (VW_PADM_NRR_CURRENT,
--- VW_PADM_UNWIND_CURRENT) is complete and verbatim. Below is the GRID and the start of the
--- MEASURES CTE, captured as far as the PDF goes (through its SELECT list up to
--- H.CAMPAIGN_TYPE) -- the rest of MEASURES, the final outer SELECT, and the closing
--- semicolon were NOT in this PDF. Likely continues in "Sql database queries 2.pdf" (not yet
--- read in this pass). Do not run this file as-is; do not assume what follows.
+-- INCOMPLETE: VW_PADM_SEGMENT_CALCULATION_CURRENT below is cut off mid-definition. Everything
+-- above (VW_PADM_NRR_CURRENT, VW_PADM_UNWIND_CURRENT) is complete. Below is the GRID and the
+-- start of the MEASURES CTE, through its SELECT list up to H.CAMPAIGN_TYPE -- the rest of
+-- MEASURES, the final outer SELECT, and the closing semicolon are missing. Do not run this
+-- file as-is; do not assume what follows.
 
 CREATE OR REPLACE VIEW VW_PADM_SEGMENT_CALCULATION_CURRENT AS
 WITH GRID AS
@@ -230,9 +228,6 @@ HISTORY AS
            AND G.CAMPAIGN_TYPE = UF.CAMPAIGN_TYPE
            AND UF.UNWIND_SOURCE = 'SEGMENT_FALLBACK'
 ),
--- (MEASURES CTE + final SELECT below spliced in from Sql database queries 2.pdf's continuation;
--- the version previously here was an incomplete stub, replaced, not appended, since it was
--- wrong/truncated: only 2 of ~22 columns and a bogus premature closing semicolon.)
 MEASURES AS
     (
         SELECT

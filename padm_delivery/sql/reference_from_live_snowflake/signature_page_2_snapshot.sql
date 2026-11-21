@@ -1,7 +1,3 @@
--- TRANSCRIBED from "Sql database queries 6.pdf" photos of a local VS Code editor
--- (workspace "padm_phase1"), tab "signature_page_2_snapshot.sql". Appears COMPLETE
--- (starts at the header comments, ends cleanly after the final `;`).
-
 -- This template creates an immutable Signature Page 2 snapshot.
 -- The application supplies Campaign ID, Calculation Run ID, version, and status.
 

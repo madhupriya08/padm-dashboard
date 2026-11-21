@@ -65,17 +65,15 @@ INNER JOIN DM_PADM_CAMPAIGN_SOURCE_VERSION AS S
 WHERE O.IS_CURRENT = TRUE;
 
 -- ===========================================================================================
--- 3. SP_PADM_ACTIVATE_CAMPAIGN -- identical to your existing procedure (reconstructed verbatim
---    from GET_DDL), with CREDIT_BUREAU_MODEL / CREDIT_BUREAU_SCORE added to the
---    DM_PADM_CAMPAIGN_OFFER INSERT's column list and its SELECT (pulling S.CREDIT_BUREAU_MODEL /
---    S.CREDIT_BUREAU_SCORE, which VW_PADM_ACM_OFFER_SOURCE already provides). Nothing else in
---    this procedure was changed -- same validations, same hash, same QUALIFY dedup.
+-- 3. SP_PADM_ACTIVATE_CAMPAIGN -- identical to the existing procedure, with CREDIT_BUREAU_MODEL /
+--    CREDIT_BUREAU_SCORE added to the DM_PADM_CAMPAIGN_OFFER INSERT's column list and its SELECT
+--    (pulling S.CREDIT_BUREAU_MODEL / S.CREDIT_BUREAU_SCORE, which VW_PADM_ACM_OFFER_SOURCE
+--    already provides). Nothing else in this procedure was changed -- same validations, same
+--    hash, same QUALIFY dedup.
 --
---    CONFIRMED REAL (2026-11-19): this procedure checks V_STATUS NOT IN ('DISCOVERED',
---    'REOPENED', 'DRAFT') -- i.e. the OLD status vocabulary IS live in this real, currently-
---    running procedure, not just in stale DDL/docs. HANDOFF.md section 4b previously treated
---    DISCOVERED/REOPENED as superseded-by-migration; that needs re-checking against this file
---    rather than assumed dead.
+--    NOTE: this procedure checks V_STATUS NOT IN ('DISCOVERED', 'REOPENED', 'DRAFT') -- i.e. the
+--    OLD status vocabulary is live in this real, currently-running procedure, not just in stale
+--    DDL/docs.
 -- ===========================================================================================
 CREATE OR REPLACE PROCEDURE SP_PADM_ACTIVATE_CAMPAIGN(P_CAMPAIGN_ID VARCHAR, P_CHANGE_REASON VARCHAR)
 RETURNS VARCHAR

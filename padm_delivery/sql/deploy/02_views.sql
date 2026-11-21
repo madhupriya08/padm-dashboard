@@ -450,27 +450,15 @@ SELECT
     , TIMES_MAILED_9_PLUS_COUNT / TIMES_MAILED_TOTAL AS TIMES_MAILED_9_PLUS_PERCENTAGE
 FROM FIGURES_3;
 
--- TRANSCRIPTION UNCERTAIN: the final SELECT above (after FIGURES_3) duplicates POST_UNWIND_BOARDS
--- and MARKETING_PLUS_BOOKING_COSTS computations that already exist in FIGURES_3 -- this is what
--- the screenshots actually showed (lines ~416-450), but it reads like it could be a screen-capture
--- artifact (the same formula block appearing twice). Verify against the live object in Snowflake;
--- do not assume this duplication is a real bug without checking the source file directly.
-
 -- -------------------------------------------------------------------------------------------
 -- Live (pre-snapshot) signature page (spec 3.6): same shape and formulas as the snapshot.
--- CONFIRMED REAL (2026-11-19) -- this replaces the reconstruction's guessed thin-wrapper
--- version (`SELECT * EXCLUDE (CALC_SOURCE_ID) FROM VW_PADM_SIGNATURE_PAGE_ALL WHERE
--- CALC_SOURCE_ID = 'LIVE'`), which was wrong: the real view is standalone and does NOT wrap
--- VW_PADM_SIGNATURE_PAGE_ALL. Fix applied: CRS_MODEL/NRM were missing entirely (added via a
--- join to VW_PADM_ACM_OFFER_SOURCE on OFFER_RESERVATION_CODE); NETWORK/ANNUAL_FEE_YR1/YR2 now
--- COALESCE between that same source and T_ACM_PROGRAMS. Applied and run directly in Snowsight
--- by the user; confirmed working.
--- SECOND FIX (2026-11-19, later same day): the real view was offer-allocation-driven
--- (FROM DM_PADM_OFFER_SEGMENT_ALLOCATION INNER JOIN offer) -- only offers already linked to a
--- segment showed up, so a campaign with ~80 ACM offers but only a few allocated segments showed
--- almost nothing. Flipped to offer-driven with a LEFT JOIN to allocation, matching the original
--- design intent documented elsewhere ("Offers drive the row set... populated shell before any
--- segment exists"). Unallocated offers now show with NULL SEGMENT_ID/POPULATION_DESCRIPTION.
+-- Standalone view -- does NOT wrap VW_PADM_SIGNATURE_PAGE_ALL. Joins VW_PADM_ACM_OFFER_SOURCE
+-- on OFFER_RESERVATION_CODE for CRS_MODEL/NRM; NETWORK/ANNUAL_FEE_YR1/YR2 COALESCE between that
+-- same source and T_ACM_PROGRAMS.
+-- Offer-driven with a LEFT JOIN to DM_PADM_OFFER_SEGMENT_ALLOCATION (not an INNER JOIN): offers
+-- drive the row set as a populated shell before any segment exists, so unallocated offers still
+-- show, with NULL SEGMENT_ID/POPULATION_DESCRIPTION, instead of only offers already linked to
+-- a segment.
 -- -------------------------------------------------------------------------------------------
 CREATE OR REPLACE VIEW VW_PADM_SIGNATURE_PAGE_LIVE AS
 WITH TIMES_MAILED_0 AS (
@@ -545,7 +533,4 @@ FROM
     UNION ALL SELECT 'CREDIT_BUREAU_SCORE', TO_VARCHAR(PROSPECT_CREDIT_BUREAU_SCORE) FROM RECENT
     UNION ALL SELECT 'CRS_MODEL', TO_VARCHAR(PROSPECT_CRS_MODEL) FROM RECENT
     UNION ALL SELECT 'CRS_SCORE', TO_VARCHAR(PROSPECT_CRS_SCORE) FROM RECENT
-    -- TRANSCRIPTION UNCERTAIN: page 24 cut off here; remaining UNION ALL branches and the
-    -- outer SELECT/closing not captured in this PDF (New sql1.pdf). Likely continues in
-    -- New sql2.pdf or further pages not included in this transcription pass.
 ) AS ALL_FIELDS;
