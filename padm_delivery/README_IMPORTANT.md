@@ -29,7 +29,7 @@ what was fixed -- not something to blindly copy over your real files in Snowsigh
   (lines 1-176, 9-745 of a second pass, and a 43-line fragment for `load_cde_version`'s body).
   The splice points were checked by hand and look clean, but this was never read end-to-end from
   your real, live file in one pass.
-- `sql/do_not_run_incomplete.sql` is exactly that -- incomplete (roughly lines 119+
+- `sql/incomplete.sql` is exactly that -- incomplete (roughly lines 119+
   of a 300+-line script, the rest was never captured). Named so you don't run it by accident.
 - Two full gap-report audits are in `docs/` (`GAP_REPORT_tabs1-3.md`, `GAP_REPORT_tabs4-7.md`)
   comparing this transcription against your spec (`docs/PADM_DASHBOARD_SPEC.md`). Summary:
