@@ -54,7 +54,7 @@ def render(session):
         code = rows.loc[i, "OFFER_RESERVATION_CODE"] if "OFFER_RESERVATION_CODE" in rows.columns else None
         if not current_by_offer.empty and offer_id in current_by_offer.index:
             return current_by_offer.loc[offer_id, col]
-        if code is not None and not prior_by_code.empty and code in prior_by_code.index:
+        if pd.notna(code) and not prior_by_code.empty and code in prior_by_code.index:
             return prior_by_code.loc[code, col]
         return None
 
