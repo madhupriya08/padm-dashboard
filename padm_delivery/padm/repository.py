@@ -459,9 +459,9 @@ def save_segment_assumption(session, campaign_id, segment_id, values, expected_v
     """values: stored-unit dict keyed by assumption code; missing/None = inherit."""
     return call_proc(
         session, "SP_PADM_SAVE_SEGMENT_ASSUMPTION",
-        [campaign_id, segment_id, values.get("UNIT_COST"), values.get("NBR"), values.get("UNWIND_RATE"),
-         values.get("RATE_ADJUSTMENT"), values.get("SEASONALITY_REDUCTION"), values.get("UNWIND_RATE_ADJUSTMENT"),
-         expected_version, reason],
+        [campaign_id, segment_id, values.get("CPP"), values.get("UNIT_COST"), values.get("NBR"),
+         values.get("UNWIND_RATE"), values.get("RATE_ADJUSTMENT"), values.get("SEASONALITY_REDUCTION"),
+         values.get("UNWIND_RATE_ADJUSTMENT"), expected_version, reason],
     )
 
 

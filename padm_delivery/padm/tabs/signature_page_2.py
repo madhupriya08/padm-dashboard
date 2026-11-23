@@ -53,7 +53,7 @@ def _actions(session, campaign):
                 ui.run_action(SCOPE, lambda: repository.transition_status(session, cid, "APPROVED", reason.strip(), comment.strip() or None))
         if b2.button("Reject", icon=":material/undo:", disabled=not pending, key="sp2_reject"):
             if ui.require_reason(reason):
-                ui.run_action(SCOPE, lambda: repository.transition_status(session, cid, "DRAFT", reason.strip(), comment.strip() or None))
+                ui.run_action(SCOPE, lambda: repository.transition_status(session, cid, "REJECTED", reason.strip(), comment.strip() or None))
 
 
 def _export_buttons(frame, campaign, label):
