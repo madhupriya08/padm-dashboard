@@ -154,6 +154,7 @@ def _cde_section(session, campaign, segment):
             cells, warnings, total = parse_cde_file(raw, uploaded.name)
         except Exception as exc:
             st.error(f"Could not read this file: {exc}")
+            ui.maybe_show_traceback()
             return
         for warning in warnings:
             st.warning(warning)
@@ -428,6 +429,7 @@ def render(session):
             repository.ensure_working_grid(session, campaign["id"], segment_id)
         except Exception as exc:
             st.error(f"Could not initialize the selection grid: {exc}")
+            ui.maybe_show_traceback()
 
     version = st.segmented_control("Volume source", VERSIONS, default=VERSIONS[0], key=f"sv_version_{campaign['id']}",
                                     help="Working Version = MKU/CDE x selection %. Final Version = selections from the mail file.") \

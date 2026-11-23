@@ -79,6 +79,8 @@ def _landing(session) -> None:
 
 
 def main() -> None:
+    st.sidebar.checkbox("Debug mode", key="debug_mode",
+                         help="Show full Python tracebacks alongside error messages, for diagnosing issues live.")
     session = get_active_session()
     campaign = ui.campaign_context(session)
 

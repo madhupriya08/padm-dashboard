@@ -2,6 +2,7 @@
 reason boxes, Tier x Times Mailed grids and the signature-page table."""
 
 import math
+import traceback
 
 import pandas as pd
 import streamlit as st
@@ -121,16 +122,34 @@ def show_flash(scope):
     st.session_state["_flash"] = keep
 
 
+def is_debug():
+    return st.session_state.get("debug_mode", False)
+
+
+def maybe_show_traceback():
+    """Call right after st.error() in an except block; shows the full traceback when debug mode
+    (sidebar toggle) is on, so a Python-side bug can be diagnosed without reproducing it in Snowsight."""
+    if is_debug():
+        with st.expander("Debug: full traceback", expanded=True):
+            st.code(traceback.format_exc())
+
+
+def _show_error(exc):
+    st.error(str(exc))
+    maybe_show_traceback()
+
+
 def run_action(scope, action, success_message=None, on_success=None):
     """Runs a write; on success flashes the message and reruns so every tab re-reads.
-    Procedure refusals / Snowflake errors are shown inline and the user's inputs are kept."""
+    Procedure refusals / Snowflake errors are shown inline and the user's inputs are kept.
+    With debug mode on (sidebar toggle), the full Python traceback is shown too."""
     try:
         result = action()
     except ProcedureError as exc:
-        st.error(str(exc))
+        _show_error(exc)
         return
     except Exception as exc:  # Snowflake error text is the most useful thing to show
-        st.error(f"{exc}")
+        _show_error(exc)
         return
     if on_success:
         on_success(result)
