@@ -78,6 +78,21 @@ WITH RAW_MAILFILE AS
     FROM CSTONE_BIZ.REFERENCE.T_TRANSUNION_MAILFILE
     WHERE PRESCREEN_VANTAGE_V3 IS NOT NULL
       AND MAIL_DATE >= '2026-01-01' AND MAIL_DATE < '2027-01-01'
+
+    -- T_MAP_MAILFILE: existing-customer "multiple account" offers. CAMPAIGN_SOURCE is a constant
+    -- 'S' across the whole table (confirmed via SELECT DISTINCT) -- always folds into REMAIL per
+    -- the campaign model (MAP + PAREMAIL -> REMAIL). Classified RETARGETING: a repeat-contact offer
+    -- to a current customer, not new-prospect outreach. JUDGMENT CALL, not a confirmed fact: this
+    -- table has no RESPONSE_MODEL_TIER or TIMES_MAILED column at all, so both are set to a single
+    -- placeholder value (0 / '0') meaning "no tier/times-mailed breakdown exists for MAP" -- flag
+    -- this to the business; if MAP volume needs its own real tier dimension later, don't just widen
+    -- this placeholder, trace back to a real source column first.
+    UNION ALL
+    SELECT 'MAP', 'REMAIL', 'RETARGETING', 'N', NULL, NULL, 0, MAIL_DATE, '0',
+           'VS3', TRY_CAST(PRESCREEN_VANTAGE_V3 AS NUMBER(10,0))
+    FROM CSTONE_BIZ.REFERENCE.T_MAP_MAILFILE
+    WHERE TRY_CAST(PRESCREEN_VANTAGE_V3 AS NUMBER(10,0)) IS NOT NULL
+      AND MAIL_DATE >= '2026-01-01' AND MAIL_DATE < '2027-01-01'
 ),
 MATCHED AS
 (

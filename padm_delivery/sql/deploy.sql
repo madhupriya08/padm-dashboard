@@ -2202,6 +2202,17 @@ WITH RAW_SCORES AS
            RESPONSE_MODEL_TYPE, RISK_SCORE_TYPE, MAIL_DATE, 'VS3', PRESCREEN_VANTAGE_V3
     FROM CSTONE_BIZ.REFERENCE.T_TRANSUNION_MAILFILE
     WHERE PRESCREEN_VANTAGE_V3 IS NOT NULL
+
+    -- T_MAP_MAILFILE: existing-customer "multiple account" offers (CAMPAIGN_SOURCE is always 'S'
+    -- across the whole table -- confirmed via SELECT DISTINCT). No RESPONSE_MODEL_TYPE/RISK_SCORE_TYPE
+    -- column exists here, and PRESCREEN_VANTAGE_V3 is stored as VARCHAR -- TRY_CAST handles any blank/
+    -- non-numeric values gracefully. Classified RETARGETING: this is a repeat-contact offer to a
+    -- current customer, not new-prospect outreach.
+    UNION ALL
+    SELECT 'MAP', 'RETARGETING', 'MAP (existing-customer multiple account offer)',
+           'N', NULL, NULL, MAIL_DATE, 'VS3', TRY_CAST(PRESCREEN_VANTAGE_V3 AS NUMBER(10,0))
+    FROM CSTONE_BIZ.REFERENCE.T_MAP_MAILFILE
+    WHERE TRY_CAST(PRESCREEN_VANTAGE_V3 AS NUMBER(10,0)) IS NOT NULL
 )
 SELECT
       SHA2(
