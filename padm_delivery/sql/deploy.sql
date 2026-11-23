@@ -66,6 +66,40 @@ ALTER TABLE DM_PADM_SEGMENT_1 ADD COLUMN IF NOT EXISTS TIMES_MAILED_FILTER ARRAY
 ALTER TABLE DM_PADM_SEGMENT_1 ADD COLUMN IF NOT EXISTS FREE_FORM_NOTE VARCHAR;
 ALTER TABLE DM_PADM_SEGMENT_1 ADD COLUMN IF NOT EXISTS TIER_MODEL VARCHAR DEFAULT 'TRM10';
 
+-- SEGMENT_ID is already shared across campaigns (DM_PADM_SEGMENT_1 has no CAMPAIGN_ID column at
+-- all -- DM_PADM_CAMPAIGN_SEGMENT_1 is the per-campaign junction). SEGMENT_KEY materializes the
+-- natural key repository.find_segment()/discover_segments() already dedupe on (SOURCE_NAME,
+-- SCORE_TYPE, SCORE_MIN, SCORE_MAX -- the same 4 fields create_segment.py calls "mandatory
+-- fields") into one column, so it's visible/queryable without rebuilding the comparison by hand.
+-- IMPORTANT: run this query first and resolve any rows it returns -- the UNIQUE constraint below
+-- is added NOVALIDATE (Snowflake does not enforce UNIQUE/CHECK constraints at the storage layer;
+-- see CK_PADM_CAMPAIGN_STATUS above, same pattern), so it will NOT fail even if duplicates exist,
+-- but it also won't mean anything until they're gone -- real duplicate prevention stays in
+-- repository.find_segment()/create_segment(), same as before:
+--   SELECT UPPER(COALESCE(SOURCE_NAME,'')) || '|' || UPPER(SCORE_TYPE) || '|' || SCORE_MIN || '|' || SCORE_MAX AS SEGMENT_KEY,
+--          COUNT(*) FROM DM_PADM_SEGMENT_1 WHERE ACTIVE_FLAG = TRUE GROUP BY 1 HAVING COUNT(*) > 1;
+ALTER TABLE DM_PADM_SEGMENT_1 ADD COLUMN IF NOT EXISTS SEGMENT_KEY VARCHAR;
+
+UPDATE DM_PADM_SEGMENT_1
+SET SEGMENT_KEY = UPPER(COALESCE(SOURCE_NAME, '')) || '|' || UPPER(SCORE_TYPE) || '|' || SCORE_MIN || '|' || SCORE_MAX
+WHERE SEGMENT_KEY IS NULL OR SEGMENT_KEY <>
+      UPPER(COALESCE(SOURCE_NAME, '')) || '|' || UPPER(SCORE_TYPE) || '|' || SCORE_MIN || '|' || SCORE_MAX;
+
+ALTER TABLE DM_PADM_SEGMENT_1 ADD CONSTRAINT UQ_PADM_SEGMENT_KEY UNIQUE (SEGMENT_KEY) ENABLE NOVALIDATE;
+
+-- CAMPAIGN_SEGMENT_KEY: a single column to identify "this campaign's copy of this segment" by,
+-- instead of composing CAMPAIGN_ID + SEGMENT_ID by hand everywhere. No UNIQUE constraint here --
+-- unlike DM_PADM_SEGMENT_1, this table is intentionally versioned (IS_CURRENT/VALID_TO_TS), so
+-- the same (CAMPAIGN_ID, SEGMENT_ID) pair legitimately repeats across history (removed from a
+-- campaign, then reused again later) -- a blanket UNIQUE on this key would be wrong. The real
+-- invariant (at most one IS_CURRENT = TRUE row per pair) is already enforced in application code,
+-- in repository._ensure_campaign_segment()'s NOT EXISTS guard.
+ALTER TABLE DM_PADM_CAMPAIGN_SEGMENT_1 ADD COLUMN IF NOT EXISTS CAMPAIGN_SEGMENT_KEY VARCHAR;
+
+UPDATE DM_PADM_CAMPAIGN_SEGMENT_1
+SET CAMPAIGN_SEGMENT_KEY = CAMPAIGN_ID || '|' || SEGMENT_ID
+WHERE CAMPAIGN_SEGMENT_KEY IS NULL;
+
 EXECUTE IMMEDIATE $$
 DECLARE
     V_RESULT VARCHAR;

@@ -515,6 +515,11 @@ CREATE TABLE IF NOT EXISTS DM_PADM_SEGMENT_1
     MAIL_REMAIL VARCHAR,
     RESPONSE_MODEL_TYPE VARCHAR,
     RISK_SCORE_TYPE VARCHAR,
+    -- Natural key (SOURCE_NAME/SCORE_TYPE/SCORE_MIN/SCORE_MAX, the "mandatory fields") that
+    -- identifies this segment regardless of which campaign it's attached to. Computed by
+    -- repository.segment_key() -- see sql/deploy.sql for the matching backfill/constraint on an
+    -- existing install.
+    SEGMENT_KEY VARCHAR,
     ACTIVE_FLAG BOOLEAN NOT NULL DEFAULT TRUE,
     VALID_FROM DATE NOT NULL,
     VALID_TO DATE,
@@ -524,6 +529,7 @@ CREATE TABLE IF NOT EXISTS DM_PADM_SEGMENT_1
     UPDATED_BY VARCHAR NOT NULL DEFAULT CURRENT_USER(),
     UPDATED_TS TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
     CONSTRAINT PK_PADM_SEGMENT PRIMARY KEY (SEGMENT_ID),
+    CONSTRAINT UQ_PADM_SEGMENT_KEY UNIQUE (SEGMENT_KEY),
     CONSTRAINT CK_PADM_SEGMENT_SCORE_RANGE CHECK
     (
         SCORE_MIN BETWEEN 0 AND 1000
@@ -537,6 +543,11 @@ CREATE TABLE IF NOT EXISTS DM_PADM_CAMPAIGN_SEGMENT_1
     CAMPAIGN_SEGMENT_ID VARCHAR NOT NULL,
     CAMPAIGN_ID VARCHAR NOT NULL,
     SEGMENT_ID VARCHAR NOT NULL,
+    -- Identifies "this campaign's copy of this segment" in one column (CAMPAIGN_ID || '|' ||
+    -- SEGMENT_ID). No UNIQUE constraint -- this table is intentionally versioned (IS_CURRENT/
+    -- VALID_TO_TS), so the same pair legitimately repeats across history; the real invariant (at
+    -- most one IS_CURRENT = TRUE row per pair) is enforced in repository._ensure_campaign_segment().
+    CAMPAIGN_SEGMENT_KEY VARCHAR,
     WORKING_VERSION_NUMBER NUMBER(10,0) NOT NULL,
     SEGMENT_STATUS VARCHAR NOT NULL DEFAULT 'ACTIVE',
     SOURCE_CAMPAIGN_ID VARCHAR,

@@ -548,15 +548,24 @@ def segments_master(session):
     return df(session, f"SELECT * FROM {SCHEMA}.DM_PADM_SEGMENT_1 WHERE ACTIVE_FLAG = TRUE ORDER BY SEGMENT_NAME")
 
 
+def segment_key(source_name, score_type, score_min, score_max):
+    """The natural key that identifies a segment regardless of which campaign it's on --
+    SOURCE_NAME/SCORE_TYPE/SCORE_MIN/SCORE_MAX, the same 4 fields create_segment.py calls
+    "mandatory fields". Matches DM_PADM_SEGMENT_1.SEGMENT_KEY (sql/deploy.sql) exactly."""
+    return f"{(source_name or '').upper()}|{score_type.upper()}|{int(score_min)}|{int(score_max)}"
+
+
+def campaign_segment_key(campaign_id, segment_id):
+    """Identifies one campaign's copy of one segment. Matches
+    DM_PADM_CAMPAIGN_SEGMENT_1.CAMPAIGN_SEGMENT_KEY (sql/deploy.sql) exactly."""
+    return f"{campaign_id}|{segment_id}"
+
+
 def find_segment(session, score_type, score_min, score_max, source_name):
     return df(
         session,
-        f"""
-        SELECT * FROM {SCHEMA}.DM_PADM_SEGMENT_1
-        WHERE ACTIVE_FLAG = TRUE AND UPPER(SCORE_TYPE) = UPPER(%(t)s) AND SCORE_MIN = %(lo)s
-          AND SCORE_MAX = %(hi)s AND UPPER(COALESCE(SOURCE_NAME, '')) = UPPER(%(src)s)
-        """,
-        {"t": score_type, "lo": int(score_min), "hi": int(score_max), "src": source_name},
+        f"SELECT * FROM {SCHEMA}.DM_PADM_SEGMENT_1 WHERE ACTIVE_FLAG = TRUE AND SEGMENT_KEY = %(k)s",
+        {"k": segment_key(source_name, score_type, score_min, score_max)},
     )
 
 
@@ -577,7 +586,9 @@ def discover_segments(session):
             SELECT SUGGESTED_SEGMENT_NAME AS SEGMENT_NAME, SOURCE AS SOURCE_NAME,
                    BUREAU_SCORE_TYPE AS SCORE_TYPE, SCORE_MIN, SCORE_MAX,
                    COALESCE(PROSPECT_SEGMENT_TYPE, 'ALL') AS PROSPECT_SEGMENT_TYPE,
-                   ANNUAL_FEE, NETWORK, MLA_FLAG, RESPONSE_MODEL_TYPE, RISK_SCORE_TYPE, MAIL_REMAIL
+                   ANNUAL_FEE, NETWORK, MLA_FLAG, RESPONSE_MODEL_TYPE, RISK_SCORE_TYPE, MAIL_REMAIL,
+                   UPPER(SOURCE) || '|' || UPPER(BUREAU_SCORE_TYPE) || '|' || SCORE_MIN || '|' || SCORE_MAX
+                       AS SEGMENT_KEY
             FROM {SCHEMA}.VW_PADM_SEGMENT_SOURCE_CANDIDATE
             WHERE SCORE_MIN IS NOT NULL AND SCORE_MAX IS NOT NULL AND SOURCE IS NOT NULL
               AND BUREAU_SCORE_TYPE IS NOT NULL
@@ -586,16 +597,15 @@ def discover_segments(session):
                 ORDER BY LAST_MAIL_DATE DESC, SOURCE_RECORD_COUNT DESC
             ) = 1
         ) AS S
-        ON UPPER(T.SOURCE_NAME) = UPPER(S.SOURCE_NAME) AND UPPER(T.SCORE_TYPE) = UPPER(S.SCORE_TYPE)
-           AND T.SCORE_MIN = S.SCORE_MIN AND T.SCORE_MAX = S.SCORE_MAX
+        ON T.SEGMENT_KEY = S.SEGMENT_KEY
         WHEN NOT MATCHED THEN INSERT (
             SEGMENT_ID, SEGMENT_NAME, SOURCE_NAME, SCORE_TYPE, SCORE_MIN, SCORE_MAX,
             PROSPECT_SEGMENT_TYPE, ANNUAL_FEE, NETWORK, MLA_FLAG, RESPONSE_MODEL_TYPE,
-            RISK_SCORE_TYPE, MAIL_REMAIL, ACTIVE_FLAG, VALID_FROM, ROW_VERSION
+            RISK_SCORE_TYPE, MAIL_REMAIL, SEGMENT_KEY, ACTIVE_FLAG, VALID_FROM, ROW_VERSION
         ) VALUES (
             UUID_STRING(), S.SEGMENT_NAME, S.SOURCE_NAME, S.SCORE_TYPE, S.SCORE_MIN, S.SCORE_MAX,
             S.PROSPECT_SEGMENT_TYPE, S.ANNUAL_FEE, S.NETWORK, S.MLA_FLAG, S.RESPONSE_MODEL_TYPE,
-            S.RISK_SCORE_TYPE, S.MAIL_REMAIL, TRUE, CURRENT_DATE(), 1
+            S.RISK_SCORE_TYPE, S.MAIL_REMAIL, S.SEGMENT_KEY, TRUE, CURRENT_DATE(), 1
         )
         """,
     )
@@ -737,15 +747,16 @@ def _ensure_campaign_segment(session, campaign_id, segment_id, reason, method):
         session,
         f"""
         INSERT INTO {SCHEMA}.DM_PADM_CAMPAIGN_SEGMENT_1
-            (CAMPAIGN_SEGMENT_ID, CAMPAIGN_ID, SEGMENT_ID, WORKING_VERSION_NUMBER, SEGMENT_STATUS,
-             INITIALIZATION_METHOD, IS_CURRENT, CHANGE_REASON, ROW_VERSION)
-        SELECT UUID_STRING(), C.CAMPAIGN_ID, %(s)s, C.CURRENT_WORKING_VERSION_NUMBER, 'ACTIVE', %(m)s, TRUE, %(r)s, 1
+            (CAMPAIGN_SEGMENT_ID, CAMPAIGN_ID, SEGMENT_ID, CAMPAIGN_SEGMENT_KEY, WORKING_VERSION_NUMBER,
+             SEGMENT_STATUS, INITIALIZATION_METHOD, IS_CURRENT, CHANGE_REASON, ROW_VERSION)
+        SELECT UUID_STRING(), C.CAMPAIGN_ID, %(s)s, %(k)s, C.CURRENT_WORKING_VERSION_NUMBER, 'ACTIVE', %(m)s, TRUE, %(r)s, 1
         FROM {SCHEMA}.DM_PADM_CAMPAIGN_1 C
         WHERE C.CAMPAIGN_ID = %(c)s
           AND NOT EXISTS (SELECT 1 FROM {SCHEMA}.DM_PADM_CAMPAIGN_SEGMENT_1 CS
                            WHERE CS.CAMPAIGN_ID = %(c)s AND CS.SEGMENT_ID = %(s)s AND CS.IS_CURRENT = TRUE)
         """,
-        {"c": campaign_id, "s": segment_id, "m": method, "r": reason},
+        {"c": campaign_id, "s": segment_id, "k": campaign_segment_key(campaign_id, segment_id),
+         "m": method, "r": reason},
     )
 
 
@@ -770,6 +781,8 @@ def create_segment(session, campaign_id, fields, offer_ids, reason):
         **{f: (fields.get(f) or None) for f in SEGMENT_OPTIONAL_FIELDS},
     }
     record["PROSPECT_SEGMENT_TYPE"] = record["PROSPECT_SEGMENT_TYPE"] or "ALL"
+    record["SEGMENT_KEY"] = segment_key(fields["SOURCE_NAME"], fields["SCORE_TYPE"],
+                                         fields["SCORE_MIN"], fields["SCORE_MAX"])
     columns = list(record)
     select_list = ", ".join("PARSE_JSON(?)" if c == "TIMES_MAILED_FILTER" else "?" for c in columns)
     with transaction(session):
