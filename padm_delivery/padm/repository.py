@@ -186,8 +186,7 @@ def create_manual_campaign(session, reporting_month, campaign_type):
             (CAMPAIGN_ID, CAMPAIGN_YEAR, CAMPAIGN_MONTH, REPORTING_MONTH, CAMPAIGN_SEQUENCE,
              CAMPAIGN_TYPE, CAMPAIGN_DISPLAY_NAME, STATUS, ACTIVE_FLAG, SOURCE_CHANGE_PENDING_FLAG,
              CURRENT_SOURCE_VERSION_NUMBER, CURRENT_WORKING_VERSION_NUMBER, ROW_VERSION)
-        VALUES
-            (UUID_STRING(), %(y)s, %(mo)s, %(m)s, %(seq)s, %(t)s, %(name)s, 'NEW', FALSE, FALSE, 1, 1, 1)
+        SELECT UUID_STRING(), %(y)s, %(mo)s, %(m)s, %(seq)s, %(t)s, %(name)s, 'NEW', FALSE, FALSE, 1, 1, 1
         """,
         {"y": reporting_month.year, "mo": reporting_month.month, "m": reporting_month,
          "seq": sequence, "t": campaign_type, "name": display_name},
