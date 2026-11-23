@@ -187,7 +187,10 @@ def refresh_button():
 def num(value):
     if value is None or (isinstance(value, float) and math.isnan(value)) or pd.isna(value):
         return None
-    return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -306,23 +309,33 @@ def segment_color(segment, description=""):
     return None
 
 
-_VOLUME_SHORTHAND = re.compile(r"^\$?\s*([0-9]*\.?[0-9]+)\s*(k|m|mm)?$", re.IGNORECASE)
+_VOLUME_SHORTHAND = re.compile(r"^\$?([0-9]*\.?[0-9]+)\s*(k|m|mm)?$", re.IGNORECASE)
+_VOLUME_TOKEN = re.compile(r"\$?([0-9][0-9,]*\.?[0-9]*)\s*(k|mm|m)\b", re.IGNORECASE)
 
 
 def parse_volume(text):
     """Parses a volume entered as '160k' -> 160000.0, '2.7mm'/'2.7m' -> 2700000.0,
-    '165,000' -> 165000.0, '165000' -> 165000.0. Returns None if it isn't a recognizable number
-    (blank, or text that doesn't match) -- the caller decides whether that's an error."""
+    '165,000' -> 165000.0, '165000' -> 165000.0. Also handles a full Matrix-tool-style label
+    pasted whole, e.g. '530-549 184k' or '550-600 $75 2.7MM' -> the trailing K/M/MM number (the
+    convention these labels use for the real volume) is taken as the value. Returns None if
+    nothing recognizable is found (blank, or no number at all) -- the caller decides if that's an
+    error."""
     if text is None:
         return None
-    s = str(text).strip().replace(",", "")
+    s = str(text).strip()
     if not s:
         return None
-    m = _VOLUME_SHORTHAND.match(s)
-    if not m:
-        return num(text)
-    value = float(m.group(1))
-    suffix = (m.group(2) or "").lower()
+    plain = s.replace(",", "").replace("$", "")
+    m = _VOLUME_SHORTHAND.match(plain)
+    if m:
+        value = float(m.group(1))
+        suffix = (m.group(2) or "").lower()
+    else:
+        tokens = list(_VOLUME_TOKEN.finditer(s))
+        if not tokens:
+            return None
+        value = float(tokens[-1].group(1).replace(",", ""))
+        suffix = tokens[-1].group(2).lower()
     if suffix == "k":
         value *= 1_000
     elif suffix in ("m", "mm"):
