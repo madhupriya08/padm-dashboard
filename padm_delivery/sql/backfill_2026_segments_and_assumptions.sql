@@ -113,8 +113,7 @@ INSERT INTO DM_PADM_CAMPAIGN_ASSUMPTION_VERSION
     (CAMPAIGN_ASSUMPTION_VERSION_ID, CAMPAIGN_ID, VERSION_NUMBER, CPP, IS_CURRENT, CHANGE_REASON,
      ROW_VERSION, UPDATED_BY, UPDATED_TS)
 SELECT UUID_STRING(), C.CAMPAIGN_ID, 1, AVG(O.SOURCE_CPP), TRUE,
-       'Backfilled from ACM SOURCE_CPP (2026 historical load) -- Unit Cost/NBR/Unwind Rate/Rate '
-       'Adjustment/Seasonality have no confirmed historical source and are left blank',
+       'Backfilled from ACM SOURCE_CPP (2026 historical load) -- Unit Cost/NBR/Unwind Rate/Rate Adjustment/Seasonality have no confirmed historical source and are left blank',
        1, CURRENT_USER(), CURRENT_TIMESTAMP()
 FROM DM_PADM_CAMPAIGN_1 AS C
 JOIN DM_PADM_CAMPAIGN_OFFER AS O ON O.CAMPAIGN_ID = C.CAMPAIGN_ID AND O.IS_CURRENT = TRUE
