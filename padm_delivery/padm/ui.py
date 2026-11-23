@@ -336,6 +336,31 @@ def format_volume(value):
     return "" if value is None else f"{value:,.0f}"
 
 
+_PERCENT_SHORTHAND = re.compile(r"^([0-9]*\.?[0-9]+)\s*%?$")
+
+
+def parse_percent(text):
+    """Parses a clean percentage like '50%' or '50' -> 50.0. Returns None for blank text or
+    anything that isn't a single clean number (combined/free-text entries like '100% (605-645) &
+    25% BAU volume (646+)' are intentionally left as None -- those stay free text, not calculated)."""
+    if text is None:
+        return None
+    s = str(text).strip()
+    if not s:
+        return None
+    m = _PERCENT_SHORTHAND.match(s)
+    return float(m.group(1)) if m else None
+
+
+def format_percent(value):
+    """Formats a number back to a plain percentage string, e.g. 50.0 -> '50%', 33.33 -> '33.33%'."""
+    value = num(value)
+    if value is None:
+        return ""
+    s = f"{value:.2f}".rstrip("0").rstrip(".")
+    return f"{s}%"
+
+
 def segment_sort_rank(segment, description=""):
     """Sort key matching the color chain's priority order (a reasonable proxy for the Matrix
     tool's full 30-name custom_segmentorder, which hasn't been captured in full); unmatched
