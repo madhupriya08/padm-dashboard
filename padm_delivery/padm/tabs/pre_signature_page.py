@@ -3,9 +3,10 @@ and sort, plus 4 tracking fields -- Total Available Volume, Quantity %, Quantity
 Owner/Approver. Carries forward from the previous campaign for a matching offer (by reservation
 code) until saved here, and persists to a real table instead of an Excel file.
 
-One table only: a single editable grid. Streamlit can't show live cell colors on an editable grid
-(the same limitation Segment Viewer hit), so the Matrix tool's segment color-coding is shown as a
-text legend instead of inline row coloring.
+Two tables: a plain editable grid, and a read-only colored preview below it. Streamlit cannot show
+live cell colors on an editable grid itself (the same limitation Segment Viewer hit) -- the preview
+is the only way to show the Matrix tool's segment color-coding (and red for unsaved edits) without
+losing the native toolbar (expand/search/download) on the editable grid.
 
 Total Available Volume is one shared number per segment section, matching the Matrix tool's
 merged-cell layout -- entering it on any row in a section applies it to the whole section.
@@ -123,6 +124,52 @@ def render(session):
                 final_units.loc[i] = ui.format_volume(volume * pct / 100)
             elif units is not None and pct is None:
                 final_pct.loc[i] = ui.format_percent(units / volume * 100)
+
+    # Read-only colored preview: the editable grid above can't show cell colors (same Streamlit
+    # limitation Segment Viewer hit), so this mirrors it with the Matrix tool's section color as
+    # the base and red wherever a value here hasn't been saved yet.
+    RED_UNSAVED = "background-color: #fca5a5"
+    owner_label = NEW_LABELS["OWNER_APPROVER"]
+
+    def _changed(current, saved_values, parser=None):
+        flags = []
+        for i in rows.index:
+            cur, base = current.loc[i], saved_values.loc[i]
+            if parser is not None:
+                cur_n, base_n = parser(cur), parser(base)
+                if cur_n is not None or base_n is not None:
+                    flags.append(cur_n != base_n)
+                    continue
+            cur_s = "" if cur is None or (isinstance(cur, float) and pd.isna(cur)) else str(cur).strip()
+            base_s = "" if base is None or (isinstance(base, float) and pd.isna(base)) else str(base).strip()
+            flags.append(cur_s != base_s)
+        return pd.Series(flags, index=rows.index)
+
+    unsaved = {
+        vol_label: _changed(resolved_volume, saved["TOTAL_AVAILABLE_VOLUME"], ui.num),
+        pct_label: _changed(final_pct, saved["QUANTITY_PERCENTAGE"], ui.parse_percent),
+        units_label: _changed(final_units, saved["QUANTITY_UNITS"], ui.parse_volume),
+        owner_label: _changed(edited[owner_label], saved["OWNER_APPROVER"]),
+    }
+
+    preview = frame.copy()
+    preview[vol_label] = resolved_volume.map(ui.format_volume)
+    preview[pct_label] = final_pct
+    preview[units_label] = final_units
+    preview[owner_label] = edited[owner_label]
+
+    def style_row(row):
+        base_hex = rows.loc[row.name, "_SECTION"]
+        base_css = "" if base_hex == "none" else f"background-color: {base_hex}"
+        styles = {col: base_css for col in preview.columns}
+        for label, flags in unsaved.items():
+            if flags.loc[row.name]:
+                styles[label] = RED_UNSAVED
+        return pd.Series(styles)
+
+    st.caption("Preview (read-only) -- colored by Matrix segment section; red = entered here but not "
+               "yet saved.")
+    st.dataframe(preview.style.apply(style_row, axis=1), hide_index=True, use_container_width=True)
 
     if st.button("Save tracking fields", type="primary", icon=":material/save:",
                   disabled=locked, key=f"psp_save_{campaign['id']}"):
