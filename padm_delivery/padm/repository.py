@@ -232,8 +232,8 @@ def previous_campaign(session, campaign_id):
 # ===========================================================================
 
 def signature_live(session, campaign_id):
-    # Order by columns VW_PADM_SIGNATURE_PAGE_LIVE actually outputs -- SCORE_MIN / SEGMENT_NAME /
-    # OFFER_RESERVATION_CODE are not among them and would raise "invalid identifier".
+    # Order by columns VW_PADM_SIGNATURE_PAGE_LIVE actually outputs -- SCORE_MIN / SEGMENT_NAME
+    # are not among them and would raise "invalid identifier".
     return df(
         session,
         f"""
@@ -245,11 +245,12 @@ def signature_live(session, campaign_id):
 
 
 def pre_signature_detail(session, campaign_id):
-    """Current Total Available Volume / Quantity / Owner-Approver for this campaign's offers."""
+    """Current Total Available Volume / Quantity % / Quantity (units) / Owner-Approver for this
+    campaign's offers."""
     return df(
         session,
         f"""
-        SELECT CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY, OWNER_APPROVER
+        SELECT CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY_PERCENTAGE, QUANTITY_UNITS, OWNER_APPROVER
         FROM {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL WHERE CAMPAIGN_ID = %(c)s AND IS_CURRENT = TRUE
         """,
         {"c": campaign_id},
@@ -257,7 +258,7 @@ def pre_signature_detail(session, campaign_id):
 
 
 def previous_pre_signature_detail(session, campaign_id):
-    """Same 3 fields from the previous campaign, keyed by OFFER_RESERVATION_CODE so they can be
+    """Same fields from the previous campaign, keyed by OFFER_RESERVATION_CODE so they can be
     matched to this campaign's offers even though CAMPAIGN_OFFER_ID is a fresh snapshot each
     campaign. Empty frame if there's no previous campaign."""
     prior = previous_campaign(session, campaign_id)
@@ -266,7 +267,8 @@ def previous_pre_signature_detail(session, campaign_id):
     return df(
         session,
         f"""
-        SELECT O.OFFER_RESERVATION_CODE, D.TOTAL_AVAILABLE_VOLUME, D.QUANTITY, D.OWNER_APPROVER
+        SELECT O.OFFER_RESERVATION_CODE, D.TOTAL_AVAILABLE_VOLUME, D.QUANTITY_PERCENTAGE,
+               D.QUANTITY_UNITS, D.OWNER_APPROVER
         FROM {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL AS D
         JOIN {SCHEMA}.DM_PADM_CAMPAIGN_OFFER AS O ON O.CAMPAIGN_OFFER_ID = D.CAMPAIGN_OFFER_ID
         WHERE D.CAMPAIGN_ID = %(p)s AND D.IS_CURRENT = TRUE
@@ -276,8 +278,8 @@ def previous_pre_signature_detail(session, campaign_id):
 
 
 def save_pre_signature_detail(session, campaign_id, rows, reason):
-    """rows: [{CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY, OWNER_APPROVER}, ...].
-    Soft-versions: retires the current row for each offer, inserts a new one."""
+    """rows: [{CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY_PERCENTAGE, QUANTITY_UNITS,
+    OWNER_APPROVER}, ...]. Soft-versions: retires the current row for each offer, inserts a new one."""
     _assert_editable(session, campaign_id)
     if not rows:
         return "Nothing to save."
@@ -298,11 +300,12 @@ def save_pre_signature_detail(session, campaign_id, rows, reason):
                 f"""
                 INSERT INTO {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL
                     (PRE_SIGNATURE_DETAIL_ID, CAMPAIGN_ID, CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME,
-                     QUANTITY, OWNER_APPROVER, IS_CURRENT, CHANGE_REASON)
-                SELECT UUID_STRING(), %(c)s, %(o)s, %(v)s, %(q)s, %(a)s, TRUE, %(r)s
+                     QUANTITY_PERCENTAGE, QUANTITY_UNITS, OWNER_APPROVER, IS_CURRENT, CHANGE_REASON)
+                SELECT UUID_STRING(), %(c)s, %(o)s, %(v)s, %(qp)s, %(qu)s, %(a)s, TRUE, %(r)s
                 """,
                 {"c": campaign_id, "o": r["CAMPAIGN_OFFER_ID"], "v": r["TOTAL_AVAILABLE_VOLUME"],
-                 "q": r["QUANTITY"], "a": r["OWNER_APPROVER"], "r": reason},
+                 "qp": r["QUANTITY_PERCENTAGE"], "qu": r["QUANTITY_UNITS"], "a": r["OWNER_APPROVER"],
+                 "r": reason},
             )
     return f"Saved tracking fields for {len(rows)} offer(s)."
 

@@ -73,7 +73,8 @@ def _campaign_list(session):
         st.caption("No campaigns yet.")
         return
     shown = campaigns.drop(columns=["CAMPAIGN_ID"]).rename(columns={"CURRENT_WORKING_VERSION_NUMBER": "VERSION"})
-    event = st.dataframe(shown, hide_index=True, on_select="rerun", selection_mode="single-row", key="cc_campaigns")
+    event = st.dataframe(ui.style_status_column(shown), hide_index=True, on_select="rerun",
+                          selection_mode="single-row", key="cc_campaigns")
     selected = event.selection.rows if event and event.selection else []
     if selected:
         campaign_id = campaigns.iloc[selected[0]]["CAMPAIGN_ID"]

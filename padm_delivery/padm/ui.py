@@ -12,6 +12,28 @@ from padm.formulas import pivot_grid
 
 CAMPAIGN_KEY = "campaign_id"
 TYPE_LABELS = {"MAIN": "PRIMARY (MAIN)", "REMAIL": "REMAIL"}
+STATUS_BADGE_COLOR = {
+    "NEW": "gray", "DRAFT": "blue", "IN_PROGRESS": "blue",
+    "PENDING_APPROVAL": "orange", "APPROVED": "green", "REJECTED": "red",
+}
+STATUS_ROW_COLOR = {
+    "NEW": "#e0e0e0", "DRAFT": "#cce5ff", "IN_PROGRESS": "#cce5ff",
+    "PENDING_APPROVAL": "#ffe5cc", "APPROVED": "#d4edda", "REJECTED": "#f8d7da",
+}
+
+
+def status_badge(status):
+    """Markdown badge syntax for a campaign STATUS value, color-coded."""
+    return f":{STATUS_BADGE_COLOR.get(status, 'gray')}-badge[{status}]"
+
+
+def style_status_column(frame, status_col="STATUS"):
+    """Styler that colors only the STATUS column's background by its value -- for a dataframe
+    listing multiple campaigns, where status_badge()'s markdown badge isn't an option."""
+    def row_style(row):
+        color = STATUS_ROW_COLOR.get(row[status_col], "")
+        return [f"background-color: {color}" if col == status_col and color else "" for col in frame.columns]
+    return frame.style.apply(row_style, axis=1)
 
 # ---------------------------------------------------------------------------
 # Campaign context + header (spec 1.2)
@@ -57,7 +79,7 @@ def header_bar(campaign):
         cols[0].markdown(f"**Campaign**  \n{campaign['name']}")
         cols[1].markdown(f"**Mail Date**  \n{_mail_date(campaign)}")
         cols[2].markdown(f"**Campaign Type**  \n{TYPE_LABELS.get(campaign['type'], campaign['type'])}")
-        cols[3].markdown(f"**Status**  \n:blue-badge[{campaign['status']}]")
+        cols[3].markdown(f"**Status**  \n{status_badge(campaign['status'])}")
         cols[4].markdown(f"**Version**  \n{campaign['working_version']}")
     if campaign["locked"]:
         st.info("Approved - read only", icon=":material/lock:")
@@ -201,6 +223,73 @@ def render_grid(cells, title, value_col, fmt, caption, ratio=None, extra_row=Non
 
 
 # ---------------------------------------------------------------------------
+# Matrix Creation Tool column order / segment color coding -- Pre Signature Page
+# ---------------------------------------------------------------------------
+
+# (source column on VW_PADM_SIGNATURE_PAGE_LIVE, Matrix tool's label)
+MATRIX_COLUMNS = [
+    ("MAIL_DATE", "Mail Date"),
+    ("OFFER_RESERVATION_CODE", "Reservation Code"),
+    ("IVR", "Offer Code IVR"),
+    ("CREDIT_BUREAU_MODEL", "CB Model"),
+    ("CREDIT_BUREAU_SCORE", "CB Score"),
+    ("ANNUAL_FEE", "Annual Fee"),
+    ("NETWORK", "Network"),
+    ("CRS_MODEL", "CRS Model"),
+    ("CRS_SCORE", "CRS Score"),
+    ("SEGMENT_DESCRIPTION", "Description"),
+    ("NRM", "NRM"),
+    ("ACM_SEGMENT", "Segment"),
+    ("PRINT_VENDOR", "Print Vendor"),
+    ("TEST_TYPE", "Control Test"),
+    ("UNDERWRITING_FLAG", "Underwriting Flag"),
+]
+
+# Matrix tool's segment-to-color decision chain: first substring match wins. Dead/redundant
+# branches from the original (TU PRIOR*/REMAIL PRIOR*/TU Remail*, all already caught by an
+# earlier, more general rule here) are left out -- they'd produce the same color anyway.
+_SEGMENT_COLOR_CHAIN = [
+    (lambda seg, desc: "mla" in desc and "expansion" in seg, "#B8CCE4"),
+    (lambda seg, desc: "mla" in desc, "#FCD5B4"),
+    (lambda seg, desc: "tu core" in seg, "#D9E1F2"),
+    (lambda seg, desc: "tu low core" in seg, "#D9E1F2"),
+    (lambda seg, desc: "tu expansion" in seg, "#D9E1F2"),
+    (lambda seg, desc: "tu near prime" in seg, "#D9E1F2"),
+    (lambda seg, desc: "low core" in seg, "#FCD5B4"),
+    (lambda seg, desc: "core" in seg, "#FCE4D6"),
+    (lambda seg, desc: "emerging consumer" in seg, "#D9D9D9"),
+    (lambda seg, desc: "expansion" in seg, "#DDEBF7"),
+    (lambda seg, desc: "near prime" in seg, "#F4B084"),
+    (lambda seg, desc: "prime" in seg, "#CCCCFF"),
+    (lambda seg, desc: "vs4" in seg, "#E2EFDA"),
+    (lambda seg, desc: "nascar" in seg, "#FF7C80"),
+    (lambda seg, desc: "prior decline" in seg, "#00B0F0"),
+    (lambda seg, desc: "pq abandon" in seg, "#FF66FF"),
+    (lambda seg, desc: "prior closure" in seg, "#FFF2CC"),
+    (lambda seg, desc: "prior charge off" in seg, "#C6E0B4"),
+    (lambda seg, desc: "tu remail" in seg, "#D9E1F2"),
+]
+def segment_color(segment, description=""):
+    """Hex background color for a Matrix-tool-style segment name, or None if no rule matches."""
+    seg, desc = str(segment or "").lower(), str(description or "").lower()
+    for rule, color in _SEGMENT_COLOR_CHAIN:
+        if rule(seg, desc):
+            return color
+    return None
+
+
+def segment_sort_rank(segment, description=""):
+    """Sort key matching the color chain's priority order (a reasonable proxy for the Matrix
+    tool's full 30-name custom_segmentorder, which hasn't been captured in full); unmatched
+    segments sort last."""
+    seg, desc = str(segment or "").lower(), str(description or "").lower()
+    for i, (rule, _) in enumerate(_SEGMENT_COLOR_CHAIN):
+        if rule(seg, desc):
+            return i
+    return len(_SEGMENT_COLOR_CHAIN)
+
+
+# ---------------------------------------------------------------------------
 # Signature page table (spec 3.2 column order) -- Tabs 2 and 7
 # ---------------------------------------------------------------------------
 
@@ -216,6 +305,7 @@ SIGNATURE_COLUMNS = [
     ("CRS_SCORE", "CRS Score", None, False),
     ("NRM", "NRM", None, False),
     ("QUANTITY", "Quantity", "localized", False),
+    ("PRE_SIG_QUANTITY_UNITS", "Quantity (Pre-Sig Estimate)", "localized", False),
     ("NBR", "NBR", "percent", True),
     ("BOARDS", "Boards", "%.1f", True),
     ("CPP", "CPP", "dollar4", False),
