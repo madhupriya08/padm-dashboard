@@ -2124,32 +2124,84 @@ CREATE OR REPLACE VIEW VW_PADM_SEGMENT_SOURCE_CANDIDATE(
     FIRST_MAIL_DATE,
     LAST_MAIL_DATE
 ) AS
+-- PROSPECT_TYPE/PROSPECT_SOURCE are NOT raw columns on the mailfile tables -- they're derived from
+-- CAMPAIGN_SOURCE (a single letter/digit code), confirmed from the real classification script.
+-- PROSPECT_SEGMENT_TYPE below reproduces that script's PROSPECTING/RETARGETING split; SOURCE_SEGMENT_NAME
+-- carries the script's own finer-grained prospect_type label (e.g. 'PCO', 'Experian Vantage MLA') for
+-- readability, informational only -- it isn't selected into the MERGE below. The former 'LIFT' leg is
+-- dropped: LIFT_SCORE isn't a peer bureau score type (it buckets into RESPONSE_MODEL_TIER, per the same
+-- script), so no DM_PADM_SCORE_RANGE_RULE_1 row should exist for it and that leg always matched 0 rows.
 WITH RAW_SCORES AS
 (
-    SELECT 'EXPERIAN' AS SOURCE, TRIM(UPPER(PROSPECT_TYPE)) AS PROSPECT_SEGMENT_TYPE,
-           PROSPECT_SOURCE AS SOURCE_SEGMENT_NAME, UPPER(COALESCE(MLA_INDICATOR, 'N')) AS MLA_FLAG,
+    SELECT 'EXPERIAN' AS SOURCE,
+           CASE
+               WHEN CAMPAIGN_SOURCE IN ('A','W','C','D','M','R','N','G','B','J','Q') THEN 'RETARGETING'
+               WHEN CAMPAIGN_SOURCE IN ('V','E') THEN 'PROSPECTING'
+           END AS PROSPECT_SEGMENT_TYPE,
+           CASE
+               WHEN CAMPAIGN_SOURCE = 'V' AND UPPER(MLA_INDICATOR) = 'Y' THEN 'Experian Vantage MLA'
+               WHEN CAMPAIGN_SOURCE = 'E' THEN 'Emerging Consumer'
+               WHEN CAMPAIGN_SOURCE = 'V' THEN 'Experian Vantage'
+               WHEN CAMPAIGN_SOURCE IN ('A','W') THEN 'ABDN'
+               WHEN CAMPAIGN_SOURCE = 'C' THEN 'PCO'
+               WHEN CAMPAIGN_SOURCE IN ('D','M') THEN 'PDCL'
+               WHEN CAMPAIGN_SOURCE IN ('R','N') THEN 'PCL'
+               WHEN CAMPAIGN_SOURCE = 'I' THEN 'Remails, Experian Vantage'
+               WHEN CAMPAIGN_SOURCE = 'G' THEN 'Remails, Prior Charge-Off'
+               WHEN CAMPAIGN_SOURCE IN ('B','J') THEN 'Remails, Prior Closure'
+               WHEN CAMPAIGN_SOURCE = 'Q' THEN 'Remails, Prior Decline'
+           END AS SOURCE_SEGMENT_NAME,
+           UPPER(COALESCE(MLA_INDICATOR, 'N')) AS MLA_FLAG,
            RESPONSE_MODEL_TYPE, RISK_SCORE_TYPE, MAIL_DATE,
            'VS3' AS BUREAU_SCORE_TYPE, PRESCREEN_VANTAGE_V3 AS RAW_SCORE
     FROM CSTONE_BIZ.REFERENCE.T_EXPERIAN_MAILFILE
-    WHERE PRESCREEN_VANTAGE_V3 IS NOT NULL AND PROSPECT_TYPE IS NOT NULL
+    WHERE PRESCREEN_VANTAGE_V3 IS NOT NULL
 
     UNION ALL
-    SELECT 'EXPERIAN', TRIM(UPPER(PROSPECT_TYPE)), PROSPECT_SOURCE, UPPER(COALESCE(MLA_INDICATOR, 'N')),
+    SELECT 'EXPERIAN',
+           CASE
+               WHEN CAMPAIGN_SOURCE IN ('A','W','C','D','M','R','N','G','B','J','Q') THEN 'RETARGETING'
+               WHEN CAMPAIGN_SOURCE IN ('V','E') THEN 'PROSPECTING'
+           END,
+           CASE
+               WHEN CAMPAIGN_SOURCE = 'V' AND UPPER(MLA_INDICATOR) = 'Y' THEN 'Experian Vantage MLA'
+               WHEN CAMPAIGN_SOURCE = 'E' THEN 'Emerging Consumer'
+               WHEN CAMPAIGN_SOURCE = 'V' THEN 'Experian Vantage'
+               WHEN CAMPAIGN_SOURCE IN ('A','W') THEN 'ABDN'
+               WHEN CAMPAIGN_SOURCE = 'C' THEN 'PCO'
+               WHEN CAMPAIGN_SOURCE IN ('D','M') THEN 'PDCL'
+               WHEN CAMPAIGN_SOURCE IN ('R','N') THEN 'PCL'
+               WHEN CAMPAIGN_SOURCE = 'I' THEN 'Remails, Experian Vantage'
+               WHEN CAMPAIGN_SOURCE = 'G' THEN 'Remails, Prior Charge-Off'
+               WHEN CAMPAIGN_SOURCE IN ('B','J') THEN 'Remails, Prior Closure'
+               WHEN CAMPAIGN_SOURCE = 'Q' THEN 'Remails, Prior Decline'
+           END,
+           UPPER(COALESCE(MLA_INDICATOR, 'N')),
            RESPONSE_MODEL_TYPE, RISK_SCORE_TYPE, MAIL_DATE, 'VS4', PRESCREEN_VANTAGE_V4
     FROM CSTONE_BIZ.REFERENCE.T_EXPERIAN_MAILFILE
-    WHERE PRESCREEN_VANTAGE_V4 IS NOT NULL AND PROSPECT_TYPE IS NOT NULL
+    WHERE PRESCREEN_VANTAGE_V4 IS NOT NULL
 
     UNION ALL
-    SELECT 'EXPERIAN', TRIM(UPPER(PROSPECT_TYPE)), PROSPECT_SOURCE, UPPER(COALESCE(MLA_INDICATOR, 'N')),
-           RESPONSE_MODEL_TYPE, RISK_SCORE_TYPE, MAIL_DATE, 'LIFT', LIFT_SCORE
-    FROM CSTONE_BIZ.REFERENCE.T_EXPERIAN_MAILFILE
-    WHERE LIFT_SCORE IS NOT NULL AND PROSPECT_TYPE IS NOT NULL
-
-    UNION ALL
-    SELECT 'TRANSUNION', TRIM(UPPER(PROSPECT_TYPE)), PROSPECT_SOURCE, UPPER(COALESCE(MLA_INDICATOR, 'N')),
+    SELECT 'TRANSUNION',
+           CASE
+               WHEN CAMPAIGN_SOURCE = 'U' THEN 'PROSPECTING'
+               WHEN CAMPAIGN_SOURCE IN ('3','4','5','6','7','8','9','L','Z') THEN 'RETARGETING'
+               WHEN CAMPAIGN_SOURCE = 'H' AND CAMPAIGN_SCORE_SEGMENT IN ('02','03','04','05') THEN 'RETARGETING'
+           END,
+           CASE
+               WHEN CAMPAIGN_SOURCE = 'U' THEN 'TU'
+               WHEN CAMPAIGN_SOURCE IN ('3','4') THEN 'TU Prior Decline'
+               WHEN CAMPAIGN_SOURCE IN ('5','6') THEN 'TU Prior Closure'
+               WHEN CAMPAIGN_SOURCE = '7' THEN 'TU Prior Charge-Off'
+               WHEN CAMPAIGN_SOURCE = 'H' AND CAMPAIGN_SCORE_SEGMENT IN ('02','03','04','05') THEN 'Remails, TU'
+               WHEN CAMPAIGN_SOURCE IN ('8','9') THEN 'Remails, TU Prior Closure'
+               WHEN CAMPAIGN_SOURCE = 'L' THEN 'Remails, TU Prior Decline'
+               WHEN CAMPAIGN_SOURCE = 'Z' THEN 'Remails, TU Charge-Off'
+           END,
+           UPPER(COALESCE(MLA_INDICATOR, 'N')),
            RESPONSE_MODEL_TYPE, RISK_SCORE_TYPE, MAIL_DATE, 'VS3', PRESCREEN_VANTAGE_V3
     FROM CSTONE_BIZ.REFERENCE.T_TRANSUNION_MAILFILE
-    WHERE PRESCREEN_VANTAGE_V3 IS NOT NULL AND PROSPECT_TYPE IS NOT NULL
+    WHERE PRESCREEN_VANTAGE_V3 IS NOT NULL
 )
 SELECT
       SHA2(
