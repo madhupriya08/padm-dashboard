@@ -1,7 +1,13 @@
 """Pre Signature Page: live ACM-sourced offer data in the Matrix Creation Tool's column order
 and sort, color-coded the same way, plus 4 tracking fields -- Total Available Volume, Quantity %,
 Quantity (units), Owner/Approver. Carries forward from the previous campaign for a matching offer
-(by reservation code) until saved here, and persists to a real table instead of an Excel file."""
+(by reservation code) until saved here, and persists to a real table instead of an Excel file.
+
+Total Available Volume is one shared number per colored section, matching the Matrix tool's
+merged-cell layout -- entering it on any row in a section applies it to the whole section. The
+editable grid itself can't show live cell colors (a Streamlit limitation also hit in Segment
+Viewer), so a read-only colored preview is shown below it: section color as the base, red for any
+cell that differs from what's actually saved."""
 
 import pandas as pd
 import streamlit as st
@@ -16,6 +22,7 @@ NEW_LABELS = {
     "QUANTITY_UNITS": "Quantity (Units)",
     "OWNER_APPROVER": "Owner/Approver",
 }
+RED_UNSAVED = "background-color: #fca5a5"
 
 
 def render(session):
@@ -27,7 +34,9 @@ def render(session):
     st.caption(f"{campaign['name']} · ACM offer data in the Matrix Creation Tool's column order, plus "
                "Total Available Volume / Quantity % / Quantity (Units) / Owner-Approver -- carried "
                "forward from the previous campaign for a matching offer (by reservation code) until "
-               "saved here.")
+               "saved here. Total Available Volume is shared across every offer in the same colored "
+               "section (as in the Matrix tool) -- type it once anywhere in a section. K/MM shorthand "
+               "accepted (160k, 2.7mm, 165,000).")
 
     rows = repository.signature_live(session, campaign["id"])
     if rows.empty:
@@ -38,16 +47,14 @@ def render(session):
                       zip(rows.get("ACM_SEGMENT", ""), rows.get("SEGMENT_DESCRIPTION", ""))]
     sort_cols = [c for c in ["_SORT", "CREDIT_BUREAU_SCORE", "TEST_TYPE"] if c in rows.columns]
     rows = rows.sort_values(sort_cols).drop(columns="_SORT").reset_index(drop=True)
+    rows["_SECTION"] = [ui.segment_color(s, d) or "none" for s, d in
+                         zip(rows.get("ACM_SEGMENT", ""), rows.get("SEGMENT_DESCRIPTION", ""))]
 
     current = repository.pre_signature_detail(session, campaign["id"])
     current_by_offer = current.set_index("CAMPAIGN_OFFER_ID") if not current.empty else current
 
     prior = repository.previous_pre_signature_detail(session, campaign["id"])
     prior_by_code = prior.set_index("OFFER_RESERVATION_CODE") if not prior.empty else prior
-
-    frame = pd.DataFrame(index=rows.index)
-    for source, label in ui.MATRIX_COLUMNS:
-        frame[label] = rows[source] if source in rows.columns else None
 
     def value_for(i, col):
         offer_id = rows.loc[i, "CAMPAIGN_OFFER_ID"]
@@ -58,22 +65,62 @@ def render(session):
             return prior_by_code.loc[code, col]
         return None
 
+    saved = pd.DataFrame(index=rows.index)
     for col in NEW_COLUMNS:
-        frame[NEW_LABELS[col]] = [value_for(i, col) for i in frame.index]
+        saved[col] = [value_for(i, col) for i in rows.index]
 
-    def color_rows(row):
-        color = ui.segment_color(rows.loc[row.name, "ACM_SEGMENT"] if "ACM_SEGMENT" in rows.columns else None,
-                                  rows.loc[row.name, "SEGMENT_DESCRIPTION"] if "SEGMENT_DESCRIPTION" in rows.columns else None)
-        return [f"background-color: {color}" if color else ""] * len(row)
+    frame = pd.DataFrame(index=rows.index)
+    for source, label in ui.MATRIX_COLUMNS:
+        frame[label] = rows[source] if source in rows.columns else None
+    vol_label = NEW_LABELS["TOTAL_AVAILABLE_VOLUME"]
+    frame[vol_label] = saved["TOTAL_AVAILABLE_VOLUME"].map(ui.format_volume)
+    for col in ("QUANTITY_PERCENTAGE", "QUANTITY_UNITS", "OWNER_APPROVER"):
+        frame[NEW_LABELS[col]] = saved[col]
 
     locked = campaign["locked"]
     reason = ui.reason_input(f"psp_reason_{campaign['id']}", disabled=locked)
     editable_cols = set(NEW_LABELS.values())
     edited = st.data_editor(
-        frame.style.apply(color_rows, axis=1), hide_index=True, use_container_width=False,
+        frame, hide_index=True, use_container_width=True,
         disabled=[c for c in frame.columns if c not in editable_cols],
         key=f"psp_editor_{campaign['id']}",
     )
+
+    # Total Available Volume is one shared number per colored section (a merged cell in the real
+    # Matrix tool) -- resolve each section to a single value from whatever was typed anywhere in
+    # it, then propagate that value to the rest of the section for the save payload and preview.
+    resolved_volume = edited[vol_label].map(ui.parse_volume)
+    conflicts = 0
+    for _, idx in rows.groupby("_SECTION").groups.items():
+        values = resolved_volume.loc[idx].dropna().unique()
+        if len(values) > 1:
+            conflicts += 1
+        if len(values):
+            resolved_volume.loc[idx] = values[-1]
+    if conflicts:
+        st.warning(f"{conflicts} section(s) had more than one Total Available Volume typed -- "
+                   "used the last one entered for the whole section.")
+
+    preview = frame.copy()
+    preview[vol_label] = resolved_volume.map(ui.format_volume)
+    for col in ("QUANTITY_PERCENTAGE", "QUANTITY_UNITS", "OWNER_APPROVER"):
+        preview[NEW_LABELS[col]] = edited[NEW_LABELS[col]]
+
+    unsaved = pd.DataFrame(False, index=rows.index, columns=frame.columns)
+    unsaved[vol_label] = resolved_volume.fillna(-1) != saved["TOTAL_AVAILABLE_VOLUME"].map(ui.num).fillna(-1)
+    for col in ("QUANTITY_PERCENTAGE", "QUANTITY_UNITS", "OWNER_APPROVER"):
+        label = NEW_LABELS[col]
+        unsaved[label] = edited[label].fillna("").astype(str) != saved[col].fillna("").astype(str)
+
+    def style_row(row):
+        color = ui.segment_color(rows.loc[row.name, "ACM_SEGMENT"] if "ACM_SEGMENT" in rows.columns else None,
+                                  rows.loc[row.name, "SEGMENT_DESCRIPTION"] if "SEGMENT_DESCRIPTION" in rows.columns else None)
+        base = f"background-color: {color}" if color else ""
+        return [RED_UNSAVED if unsaved.loc[row.name, col] else base for col in row.index]
+
+    st.caption("Preview -- section color = Matrix segment grouping · 🟥 red = edited here, not yet saved")
+    st.dataframe(preview.style.apply(style_row, axis=1), hide_index=True, use_container_width=True,
+                 key=f"psp_preview_{campaign['id']}")
 
     if st.button("Save tracking fields", type="primary", icon=":material/save:",
                   disabled=locked, key=f"psp_save_{campaign['id']}"):
@@ -81,12 +128,12 @@ def render(session):
             payload = [
                 {
                     "CAMPAIGN_OFFER_ID": rows.loc[i, "CAMPAIGN_OFFER_ID"],
-                    "TOTAL_AVAILABLE_VOLUME": edited.loc[i, NEW_LABELS["TOTAL_AVAILABLE_VOLUME"]],
+                    "TOTAL_AVAILABLE_VOLUME": ui.num(resolved_volume.loc[i]),
                     "QUANTITY_PERCENTAGE": edited.loc[i, NEW_LABELS["QUANTITY_PERCENTAGE"]],
                     "QUANTITY_UNITS": edited.loc[i, NEW_LABELS["QUANTITY_UNITS"]],
                     "OWNER_APPROVER": edited.loc[i, NEW_LABELS["OWNER_APPROVER"]],
                 }
-                for i in edited.index
+                for i in rows.index
             ]
             ui.run_action(SCOPE, lambda: repository.save_pre_signature_detail(
                 session, campaign["id"], payload, reason.strip()))

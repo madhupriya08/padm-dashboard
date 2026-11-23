@@ -2,6 +2,7 @@
 reason boxes, Tier x Times Mailed grids and the signature-page table."""
 
 import math
+import re
 import traceback
 
 import pandas as pd
@@ -303,6 +304,36 @@ def segment_color(segment, description=""):
         if rule(seg, desc):
             return color
     return None
+
+
+_VOLUME_SHORTHAND = re.compile(r"^\$?\s*([0-9]*\.?[0-9]+)\s*(k|m|mm)?$", re.IGNORECASE)
+
+
+def parse_volume(text):
+    """Parses a volume entered as '160k' -> 160000.0, '2.7mm'/'2.7m' -> 2700000.0,
+    '165,000' -> 165000.0, '165000' -> 165000.0. Returns None if it isn't a recognizable number
+    (blank, or text that doesn't match) -- the caller decides whether that's an error."""
+    if text is None:
+        return None
+    s = str(text).strip().replace(",", "")
+    if not s:
+        return None
+    m = _VOLUME_SHORTHAND.match(s)
+    if not m:
+        return num(text)
+    value = float(m.group(1))
+    suffix = (m.group(2) or "").lower()
+    if suffix == "k":
+        value *= 1_000
+    elif suffix in ("m", "mm"):
+        value *= 1_000_000
+    return value
+
+
+def format_volume(value):
+    """Formats a raw number back to a plain, comma-separated string for display/editing."""
+    value = num(value)
+    return "" if value is None else f"{value:,.0f}"
 
 
 def segment_sort_rank(segment, description=""):
