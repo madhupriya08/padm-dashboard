@@ -13,10 +13,6 @@ from padm.formulas import pivot_grid
 
 CAMPAIGN_KEY = "campaign_id"
 TYPE_LABELS = {"MAIN": "PRIMARY (MAIN)", "REMAIL": "REMAIL"}
-STATUS_BADGE_COLOR = {
-    "NEW": "gray", "DRAFT": "blue", "IN_PROGRESS": "blue",
-    "PENDING_APPROVAL": "orange", "APPROVED": "green", "REJECTED": "red",
-}
 STATUS_ROW_COLOR = {
     "NEW": "#e0e0e0", "DRAFT": "#cce5ff", "IN_PROGRESS": "#cce5ff",
     "PENDING_APPROVAL": "#ffe5cc", "APPROVED": "#d4edda", "REJECTED": "#f8d7da",
@@ -24,8 +20,11 @@ STATUS_ROW_COLOR = {
 
 
 def status_badge(status):
-    """Markdown badge syntax for a campaign STATUS value, color-coded."""
-    return f":{STATUS_BADGE_COLOR.get(status, 'gray')}-badge[{status}]"
+    """Self-contained HTML pill for a campaign STATUS value, color-coded. Caller must render it
+    with unsafe_allow_html=True (used inside header_bar()'s own HTML card)."""
+    color = STATUS_ROW_COLOR.get(status, "#e0e0e0")
+    return (f'<span style="background:{color}; color:#1a2b3c; padding:0.15rem 0.65rem; '
+            f'border-radius:999px; font-weight:700; font-size:0.82rem; white-space:nowrap;">{status}</span>')
 
 
 def style_status_column(frame, status_col="STATUS"):
@@ -75,13 +74,22 @@ def _mail_date(campaign):
 
 
 def header_bar(campaign):
-    with st.container(border=True):
-        cols = st.columns([3, 2, 2, 2, 1])
-        cols[0].markdown(f"**Campaign**  \n{campaign['name']}")
-        cols[1].markdown(f"**Mail Date**  \n{_mail_date(campaign)}")
-        cols[2].markdown(f"**Campaign Type**  \n{TYPE_LABELS.get(campaign['type'], campaign['type'])}")
-        cols[3].markdown(f"**Status**  \n{status_badge(campaign['status'])}")
-        cols[4].markdown(f"**Version**  \n{campaign['working_version']}")
+    st.markdown(f"""
+    <div class="padm-header-card">
+        <div class="padm-header-grid">
+            <div><div class="padm-header-label">Campaign</div>
+                 <div class="padm-header-value">{campaign['name']}</div></div>
+            <div><div class="padm-header-label">Mail Date</div>
+                 <div class="padm-header-value">{_mail_date(campaign)}</div></div>
+            <div><div class="padm-header-label">Campaign Type</div>
+                 <div class="padm-header-value">{TYPE_LABELS.get(campaign['type'], campaign['type'])}</div></div>
+            <div><div class="padm-header-label">Status</div>
+                 <div class="padm-header-value">{status_badge(campaign['status'])}</div></div>
+            <div><div class="padm-header-label">Version</div>
+                 <div class="padm-header-value">{campaign['working_version']}</div></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     if campaign["locked"]:
         st.info("Approved - read only", icon=":material/lock:")
     if campaign["source_change_pending"]:

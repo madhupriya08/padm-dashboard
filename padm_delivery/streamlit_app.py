@@ -43,8 +43,13 @@ TABS = [
 
 st.markdown("""
 <style>
+:root {
+    --padm-navy: #0b1f3a; --padm-blue: #103a63; --padm-teal: #0e5a7a;
+    --padm-teal-light: #e6f3f7; --padm-ink: #1a2b3c; --padm-muted: #5a6b7a;
+    --padm-border: #dde5ec;
+}
 .padm-brand { padding: 1.1rem 1.5rem; border-radius: 14px; margin-bottom: 1rem;
-    background: linear-gradient(120deg, #0b1f3a 0%, #103a63 55%, #0e5a7a 100%);
+    background: linear-gradient(120deg, var(--padm-navy) 0%, var(--padm-blue) 55%, var(--padm-teal) 100%);
     box-shadow: 0 4px 18px rgba(10, 30, 60, 0.25); color: #fff; }
 .padm-brand h1 { margin: 0; font-size: 1.55rem; font-weight: 700; color: #fff; letter-spacing: 0.2px; }
 .padm-brand .sub { opacity: 0.82; font-size: 0.92rem; margin-top: 0.2rem; }
@@ -52,9 +57,34 @@ st.markdown("""
 .padm-step { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18);
     border-radius: 999px; padding: 0.3rem 0.8rem; font-size: 0.82rem; color: #fff; }
 .padm-step b { opacity: 0.6; margin-right: 0.3rem; }
+
+/* Campaign header card (padm/ui.py header_bar) */
+.padm-header-card { background: linear-gradient(180deg, #ffffff 0%, var(--padm-teal-light) 130%);
+    border: 1px solid var(--padm-border); border-radius: 12px; padding: 0.9rem 1.2rem;
+    margin-bottom: 0.7rem; box-shadow: 0 2px 10px rgba(10, 30, 60, 0.06); }
+.padm-header-grid { display: flex; flex-wrap: wrap; gap: 1.6rem; }
+.padm-header-grid > div { min-width: 7.5rem; }
+.padm-header-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em;
+    color: var(--padm-muted); text-transform: uppercase; }
+.padm-header-value { font-size: 0.98rem; color: var(--padm-ink); font-weight: 600; }
+
+/* Tabs */
 div[data-testid="stTabs"] button[role="tab"] p { font-weight: 600; }
 div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-    border-bottom: 3px solid #0e5a7a; }
+    border-bottom: 3px solid var(--padm-teal); }
+div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p { color: var(--padm-teal); }
+
+/* Sidebar */
+section[data-testid="stSidebar"] { background: #f4f8fa; border-right: 1px solid var(--padm-border); }
+
+/* Buttons */
+button[kind="primary"], button[kind="primaryFormSubmit"] {
+    background-color: var(--padm-teal) !important; border-color: var(--padm-teal) !important; }
+button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover {
+    background-color: var(--padm-blue) !important; border-color: var(--padm-blue) !important; }
+
+/* Section headers within tabs (st.header()) */
+div[data-testid="stMarkdownContainer"] h2 { color: var(--padm-navy); }
 </style>
 """, unsafe_allow_html=True)
 
