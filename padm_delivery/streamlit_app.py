@@ -93,7 +93,7 @@ def _brand_bar() -> None:
     steps = "".join(f'<span class="padm-step"><b>{i}</b>{label}</span>' for i, (label, _, _) in enumerate(TABS, start=1))
     st.markdown(
         f"""<div class="padm-brand">
-            <h1>:material/fact_check: PADM Sign-Off Dashboard</h1>
+            <h1>PADM Sign-Off Dashboard</h1>
             <div class="sub">Direct-mail credit-card campaign sign-off — replaces the manual Excel process.</div>
             <div class="padm-steps">{steps}</div>
         </div>""",
