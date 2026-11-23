@@ -1,9 +1,9 @@
 """PADM Sign-Off Dashboard — entry point.
 
-Renders the 7-tab workflow (spec sections 1.1 through 1.3): Campaign Creation,
-Signature Page, Create Segment, Campaign Assumptions, Population Description,
-Segment Viewer, Signature Page 2. The selected campaign lives in
-st.session_state["campaign_id"] and is shared by every tab.
+Renders the 8-tab workflow: Campaign Creation, Pre Signature Page, Signature Page,
+Create Segment, Campaign Assumptions, Population Description, Segment Viewer,
+Signature Page 2. The selected campaign lives in st.session_state["campaign_id"]
+and is shared by every tab.
 
 Campaign data goes through ui.campaign_context() (not repository.campaign_header() directly --
 that returns a raw DataFrame with real column names like CAMPAIGN_DISPLAY_NAME and
@@ -32,8 +32,8 @@ st.set_page_config(page_title="PADM Sign-Off Dashboard", page_icon=":material/fa
 
 TABS = [
     ("Campaign Creation", ":material/add_box:", campaign_creation),
-    ("Signature Page", ":material/description:", signature_page),
     ("Pre Signature Page", ":material/checklist:", pre_signature_page),
+    ("Signature Page", ":material/description:", signature_page),
     ("Create Segment", ":material/group_add:", create_segment),
     ("Campaign Assumptions", ":material/tune:", campaign_assumptions),
     ("Population Description", ":material/pie_chart:", population_description),
