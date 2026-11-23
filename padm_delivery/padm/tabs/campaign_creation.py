@@ -36,24 +36,37 @@ def _discover_section(session):
     if discovered != (reporting_month, campaign_type):
         return
 
+    existing_id, existing_status = repository.existing_campaign_for_month(session, reporting_month, campaign_type)
+    if existing_id is not None:
+        st.info(f"This campaign already exists with status {existing_status}. Select it below to activate or continue it.")
+        return
+
     candidate = repository.campaign_candidate(session, reporting_month, campaign_type)
     offers = repository.candidate_offers(session, reporting_month, campaign_type)
     if candidate.empty or offers.empty:
-        st.warning("No eligible ACM offers for this month and campaign type.")
+        st.warning("No eligible ACM offers for this month and campaign type yet.")
+        st.subheader("Create campaign")
+        st.caption("No ACM data has landed for this month/type yet. Create a placeholder campaign now -- "
+                   "segments can be created under it right away -- and Activate it later once ACM data exists.")
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            reason = ui.reason_input("cc_manual_create_reason")
+            if st.button("Create Campaign", type="primary", icon=":material/add_box:", key="cc_manual_create"):
+                if ui.require_reason(reason):
+                    ui.run_action(
+                        SCOPE,
+                        lambda: (repository.create_manual_campaign(session, reporting_month, campaign_type),
+                                 "Campaign created -- Activate it once ACM data exists for this month."),
+                        lambda result: result[1],
+                        on_success=lambda result: st.session_state.update({ui.CAMPAIGN_KEY: result[0]}),
+                    )
         return
 
     row = candidate.iloc[0]
-    status = row["STATUS"] if isinstance(row["STATUS"], str) else None
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     c1.metric("Candidate", row["CAMPAIGN_DISPLAY_NAME"], border=True)
     c2.metric("ACM offers", f"{len(offers):,}", border=True)
     c3.metric("Mail dates", f"{row['SOURCE_MIN_MAIL_DATE']} - {row['SOURCE_MAX_MAIL_DATE']}", border=True)
-    c4.metric("PADM status", status or "not created", border=True)
     st.dataframe(offers, hide_index=True, height=300, key="cc_offers")
-
-    if status is not None:
-        st.info(f"This campaign already exists with status {status}. Select it below to activate or continue it.")
-        return
 
     def _create():
         campaign_id = repository.discover_campaign(session, reporting_month, campaign_type)

@@ -157,6 +157,45 @@ def discover_campaign(session, reporting_month, campaign_type):
     return str(rows[0][0]) if rows else None
 
 
+def existing_campaign_for_month(session, reporting_month, campaign_type):
+    """Looks up a PADM campaign for this month/type directly against DM_PADM_CAMPAIGN_1 --
+    independent of whether ACM has any candidate data yet. Returns (campaign_id, status) or
+    (None, None)."""
+    rows = session.sql(
+        f"SELECT CAMPAIGN_ID, STATUS FROM {SCHEMA}.DM_PADM_CAMPAIGN_1 WHERE REPORTING_MONTH = ? AND CAMPAIGN_TYPE = ?",
+        params=[reporting_month, campaign_type],
+    ).collect()
+    return (str(rows[0][0]), rows[0][1]) if rows else (None, None)
+
+
+def create_manual_campaign(session, reporting_month, campaign_type):
+    """Creates a placeholder campaign shell (STATUS 'NEW') for a month with no ACM candidate data
+    yet. CAMPAIGN_SEQUENCE and CAMPAIGN_DISPLAY_NAME use the exact same formulas
+    VW_PADM_ACM_CAMPAIGN_CANDIDATE does (sql/deploy.sql) so a campaign created this way looks
+    identical to one discovered from ACM later. The ACM-sourced fields (SOURCE_CAMPAIGN_IDENTIFICATION_CODE,
+    SOURCE_MIN_MAIL_DATE, SOURCE_MAX_MAIL_DATE) are left NULL -- discover_campaign() fills those in
+    for real once ACM data exists and this campaign is refreshed/activated."""
+    month_name = reporting_month.strftime("%B")
+    type_label = "Main" if campaign_type == "MAIN" else "Remail"
+    sequence = (reporting_month.month - 1) * 2 + (1 if campaign_type == "MAIN" else 2)
+    display_name = f"{month_name} {reporting_month.year} {type_label} Campaign"
+    exec_sql(
+        session,
+        f"""
+        INSERT INTO {SCHEMA}.DM_PADM_CAMPAIGN_1
+            (CAMPAIGN_ID, CAMPAIGN_YEAR, CAMPAIGN_MONTH, REPORTING_MONTH, CAMPAIGN_SEQUENCE,
+             CAMPAIGN_TYPE, CAMPAIGN_DISPLAY_NAME, STATUS, ACTIVE_FLAG, SOURCE_CHANGE_PENDING_FLAG,
+             CURRENT_SOURCE_VERSION_NUMBER, CURRENT_WORKING_VERSION_NUMBER, ROW_VERSION)
+        VALUES
+            (UUID_STRING(), %(y)s, %(mo)s, %(m)s, %(seq)s, %(t)s, %(name)s, 'NEW', FALSE, FALSE, 1, 1, 1)
+        """,
+        {"y": reporting_month.year, "mo": reporting_month.month, "m": reporting_month,
+         "seq": sequence, "t": campaign_type, "name": display_name},
+    )
+    campaign_id, _ = existing_campaign_for_month(session, reporting_month, campaign_type)
+    return campaign_id
+
+
 def activate_campaign(session, campaign_id, reason):
     """Snapshot ACM via SP_PADM_ACTIVATE_CAMPAIGN (NEW -> DRAFT). Campaign must already exist --
     see discover_campaign()/create_and_activate_campaign() to create one first."""
