@@ -3,15 +3,19 @@ and sort, plus 4 tracking fields -- Total Available Volume, Quantity %, Quantity
 Owner/Approver. Carries forward from the previous campaign for a matching offer (by reservation
 code) until saved here, and persists to a real table instead of an Excel file.
 
-Two tables: a plain editable grid, and a read-only colored preview below it. Streamlit cannot show
-live cell colors on an editable grid itself (the same limitation Segment Viewer hit) -- the preview
-is the only way to show the Matrix tool's segment color-coding (and red for unsaved edits) without
-losing the native toolbar (expand/search/download) on the editable grid.
-
 Total Available Volume is one shared number per segment section, matching the Matrix tool's
-merged-cell layout -- entering it on any row in a section applies it to the whole section.
+merged-cell layout. Since st.data_editor can't merge cells, it gets its own small editor with
+exactly one row per section (so there is exactly one place to enter it, no per-offer-row
+duplication/conflicts); the main offer grid shows that section's resolved volume read-only.
+
 Quantity % and Quantity (Units) are linked: enter either one (a clean number/percentage, not a
-combined free-text note) and the other is calculated from the section's Total Available Volume."""
+combined free-text note) and the other is calculated from the section's Total Available Volume.
+
+Two tables below the editors: a plain editable grid, and a read-only colored preview. Streamlit
+cannot show live cell colors on an editable grid itself (the same limitation Segment Viewer hit)
+-- the preview mirrors Segment Viewer's own proven styling pattern (a same-shape DataFrame of CSS
+strings applied with Styler.apply(..., axis=None)) to show the Matrix tool's segment color-coding,
+plus red for unsaved edits."""
 
 import pandas as pd
 import streamlit as st
@@ -26,6 +30,26 @@ NEW_LABELS = {
     "QUANTITY_UNITS": "Quantity (Units)",
     "OWNER_APPROVER": "Owner/Approver",
 }
+RED_UNSAVED = "background-color: #fca5a5"
+
+
+def _text(value):
+    """None/NaN -> "" ; everything else -> a plain stripped string. Keeps a column's pandas dtype
+    as plain text (object) from the start, so Streamlit can't infer a numeric column type for it
+    and reject free-text entries like '100% (605-645) & 25% BAU volume (646+)'."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    return str(value).strip()
+
+
+def _display_text(value, parser, formatter):
+    """Like _text(), but if the value parses as a clean number, show it formatted (so a raw DB
+    number like 25.0 displays as '25%' / '25,000') -- otherwise falls back to the raw text as-is
+    (a free-text note is never reformatted or dropped)."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    parsed = parser(value)
+    return formatter(parsed) if parsed is not None else str(value).strip()
 
 
 def render(session):
@@ -37,9 +61,7 @@ def render(session):
     st.caption(f"{campaign['name']} · ACM offer data in the Matrix Creation Tool's column order, plus "
                "Total Available Volume / Quantity % / Quantity (Units) / Owner-Approver -- carried "
                "forward from the previous campaign for a matching offer (by reservation code) until "
-               "saved here. Total Available Volume is shared across every offer in the same colored "
-               "section (as in the Matrix tool) -- type it once anywhere in a section. K/MM shorthand "
-               "accepted (160k, 2.7mm, 165,000).")
+               "saved here. K/MM shorthand accepted (160k, 2.7mm, 165,000).")
 
     rows = repository.signature_live(session, campaign["id"])
     if rows.empty:
@@ -72,48 +94,75 @@ def render(session):
     for col in NEW_COLUMNS:
         saved[col] = [value_for(i, col) for i in rows.index]
 
+    # Sections in display order (first occurrence), each a group of offer rows sharing one Matrix
+    # segment color -- exactly where the Matrix tool shows one merged Available Volume cell.
+    section_keys = list(dict.fromkeys(rows["_SECTION"]))
+    section_rows = {key: rows.index[rows["_SECTION"] == key] for key in section_keys}
+
+    def section_label(key):
+        names = sorted({str(s).strip() for s in rows.loc[section_rows[key], "ACM_SEGMENT"].dropna()
+                         if str(s).strip()})
+        return ", ".join(names) if names else "(uncategorized)"
+
+    def section_saved_volume(key):
+        for i in section_rows[key]:
+            value = ui.num(saved.loc[i, "TOTAL_AVAILABLE_VOLUME"])
+            if value is not None:
+                return value
+        return None
+
+    vol_label = NEW_LABELS["TOTAL_AVAILABLE_VOLUME"]
+    locked = campaign["locked"]
+
+    st.subheader("Total Available Volume by section")
+    st.caption("One row per segment section (as in the Matrix tool's merged Available Volume cell) -- "
+               "enter it once here and it applies to every offer in that section below.")
+    section_frame = pd.DataFrame(
+        {"Segment Section": [section_label(k) for k in section_keys],
+         vol_label: [ui.format_volume(section_saved_volume(k)) for k in section_keys]},
+        index=section_keys,
+    )
+    section_edited = st.data_editor(
+        section_frame, hide_index=True, use_container_width=True,
+        disabled=["Segment Section"],
+        column_config={vol_label: st.column_config.TextColumn(
+            vol_label, help="K/MM shorthand accepted (160k, 2.7mm, 165,000).")},
+        key=f"psp_section_editor_{campaign['id']}",
+    )
+    section_volume = {k: ui.parse_volume(section_edited.loc[k, vol_label]) for k in section_keys}
+    resolved_volume = rows["_SECTION"].map(section_volume)
+
     frame = pd.DataFrame(index=rows.index)
     for source, label in ui.MATRIX_COLUMNS:
         frame[label] = rows[source] if source in rows.columns else None
-    vol_label = NEW_LABELS["TOTAL_AVAILABLE_VOLUME"]
-    frame[vol_label] = saved["TOTAL_AVAILABLE_VOLUME"].map(ui.format_volume)
-    for col in ("QUANTITY_PERCENTAGE", "QUANTITY_UNITS", "OWNER_APPROVER"):
-        frame[NEW_LABELS[col]] = saved[col]
+    frame[vol_label] = resolved_volume.map(ui.format_volume)
+    frame[NEW_LABELS["QUANTITY_PERCENTAGE"]] = saved["QUANTITY_PERCENTAGE"].map(
+        lambda v: _display_text(v, ui.parse_percent, ui.format_percent))
+    frame[NEW_LABELS["QUANTITY_UNITS"]] = saved["QUANTITY_UNITS"].map(
+        lambda v: _display_text(v, ui.parse_volume, ui.format_volume))
+    frame[NEW_LABELS["OWNER_APPROVER"]] = saved["OWNER_APPROVER"].map(_text)
 
-    segment_names = sorted({str(s).strip() for s in rows.get("ACM_SEGMENT", pd.Series(dtype=str)).dropna()
-                             if str(s).strip()})
-    if segment_names:
-        st.caption("Segments in this campaign (each is one Total Available Volume section): " +
-                   ", ".join(segment_names))
-
+    st.subheader("Offers")
     locked = campaign["locked"]
     reason = ui.reason_input(f"psp_reason_{campaign['id']}", disabled=locked)
-    editable_cols = set(NEW_LABELS.values())
+    pct_label, units_label = NEW_LABELS["QUANTITY_PERCENTAGE"], NEW_LABELS["QUANTITY_UNITS"]
+    owner_label = NEW_LABELS["OWNER_APPROVER"]
+    editable_cols = {pct_label, units_label, owner_label}
     edited = st.data_editor(
         frame, hide_index=True, use_container_width=True,
         disabled=[c for c in frame.columns if c not in editable_cols],
+        column_config={
+            vol_label: st.column_config.TextColumn(vol_label, help="Set above, one per section."),
+            pct_label: st.column_config.TextColumn(pct_label),
+            units_label: st.column_config.TextColumn(units_label),
+            owner_label: st.column_config.TextColumn(owner_label),
+        },
         key=f"psp_editor_{campaign['id']}",
     )
 
-    # Total Available Volume is one shared number per section (a merged cell in the real Matrix
-    # tool) -- resolve each section to a single value from whatever was typed anywhere in it, then
-    # propagate that value to the rest of the section.
-    resolved_volume = edited[vol_label].map(ui.parse_volume)
-    conflicts = 0
-    for _, idx in rows.groupby("_SECTION").groups.items():
-        values = resolved_volume.loc[idx].dropna().unique()
-        if len(values) > 1:
-            conflicts += 1
-        if len(values):
-            resolved_volume.loc[idx] = values[-1]
-    if conflicts:
-        st.warning(f"{conflicts} section(s) had more than one Total Available Volume typed -- "
-                   "used the last one entered for the whole section.")
-
-    # Quantity % and Quantity (Units) are linked through that section volume: whichever one is a
-    # clean number, the other is calculated from it. Free-text/combined entries (not a single clean
-    # number) are left exactly as typed on both sides -- no calculation applied.
-    pct_label, units_label = NEW_LABELS["QUANTITY_PERCENTAGE"], NEW_LABELS["QUANTITY_UNITS"]
+    # Quantity % and Quantity (Units) are linked through the section's resolved volume: whichever
+    # one is a clean number, the other is calculated from it. Free-text/combined entries (not a
+    # single clean number) are left exactly as typed on both sides -- no calculation applied.
     final_pct, final_units = edited[pct_label].copy(), edited[units_label].copy()
     for i in rows.index:
         volume = ui.num(resolved_volume.loc[i])
@@ -125,13 +174,17 @@ def render(session):
             elif units is not None and pct is None:
                 final_pct.loc[i] = ui.format_percent(units / volume * 100)
 
-    # Read-only colored preview: the editable grid above can't show cell colors (same Streamlit
-    # limitation Segment Viewer hit), so this mirrors it with the Matrix tool's section color as
-    # the base and red wherever a value here hasn't been saved yet.
-    RED_UNSAVED = "background-color: #fca5a5"
-    owner_label = NEW_LABELS["OWNER_APPROVER"]
+    # Read-only colored preview, built the same way Segment Viewer's own (confirmed-working)
+    # colored grid is: a same-shape DataFrame of CSS strings applied via Styler.apply(fn, axis=None).
+    # Base color = the row's Matrix segment section; red overrides it on any of the 4 tracking
+    # cells whose current value differs from what's actually saved.
+    preview = frame.copy()
+    preview[vol_label] = resolved_volume.map(ui.format_volume)
+    preview[pct_label] = final_pct
+    preview[units_label] = final_units
+    preview[owner_label] = edited[owner_label]
 
-    def _changed(current, saved_values, parser=None):
+    def changed(current, saved_values, parser=None):
         flags = []
         for i in rows.index:
             cur, base = current.loc[i], saved_values.loc[i]
@@ -140,36 +193,28 @@ def render(session):
                 if cur_n is not None or base_n is not None:
                     flags.append(cur_n != base_n)
                     continue
-            cur_s = "" if cur is None or (isinstance(cur, float) and pd.isna(cur)) else str(cur).strip()
-            base_s = "" if base is None or (isinstance(base, float) and pd.isna(base)) else str(base).strip()
-            flags.append(cur_s != base_s)
+            flags.append(_text(cur) != _text(base))
         return pd.Series(flags, index=rows.index)
 
     unsaved = {
-        vol_label: _changed(resolved_volume, saved["TOTAL_AVAILABLE_VOLUME"], ui.num),
-        pct_label: _changed(final_pct, saved["QUANTITY_PERCENTAGE"], ui.parse_percent),
-        units_label: _changed(final_units, saved["QUANTITY_UNITS"], ui.parse_volume),
-        owner_label: _changed(edited[owner_label], saved["OWNER_APPROVER"]),
+        vol_label: changed(resolved_volume, saved["TOTAL_AVAILABLE_VOLUME"], ui.num),
+        pct_label: changed(final_pct, saved["QUANTITY_PERCENTAGE"], ui.parse_percent),
+        units_label: changed(final_units, saved["QUANTITY_UNITS"], ui.parse_volume),
+        owner_label: changed(edited[owner_label], saved["OWNER_APPROVER"]),
     }
 
-    preview = frame.copy()
-    preview[vol_label] = resolved_volume.map(ui.format_volume)
-    preview[pct_label] = final_pct
-    preview[units_label] = final_units
-    preview[owner_label] = edited[owner_label]
-
-    def style_row(row):
-        base_hex = rows.loc[row.name, "_SECTION"]
-        base_css = "" if base_hex == "none" else f"background-color: {base_hex}"
-        styles = {col: base_css for col in preview.columns}
-        for label, flags in unsaved.items():
-            if flags.loc[row.name]:
-                styles[label] = RED_UNSAVED
-        return pd.Series(styles)
+    highlight = pd.DataFrame("", index=preview.index, columns=preview.columns)
+    for i in rows.index:
+        base_hex = rows.loc[i, "_SECTION"]
+        if base_hex != "none":
+            highlight.loc[i, :] = f"background-color: {base_hex}"
+    for label, flags in unsaved.items():
+        highlight.loc[flags, label] = RED_UNSAVED
 
     st.caption("Preview (read-only) -- colored by Matrix segment section; red = entered here but not "
                "yet saved.")
-    st.dataframe(preview.style.apply(style_row, axis=1), hide_index=True, use_container_width=True)
+    st.dataframe(preview.style.apply(lambda _: highlight, axis=None),
+                 hide_index=True, use_container_width=True, key=f"psp_preview_{campaign['id']}")
 
     if st.button("Save tracking fields", type="primary", icon=":material/save:",
                   disabled=locked, key=f"psp_save_{campaign['id']}"):
@@ -180,7 +225,7 @@ def render(session):
                     "TOTAL_AVAILABLE_VOLUME": ui.num(resolved_volume.loc[i]),
                     "QUANTITY_PERCENTAGE": final_pct.loc[i],
                     "QUANTITY_UNITS": final_units.loc[i],
-                    "OWNER_APPROVER": edited.loc[i, NEW_LABELS["OWNER_APPROVER"]],
+                    "OWNER_APPROVER": edited.loc[i, owner_label],
                 }
                 for i in rows.index
             ]
