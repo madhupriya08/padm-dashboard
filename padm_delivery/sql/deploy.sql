@@ -1262,6 +1262,7 @@ DECLARE
     V_COMPONENT_COUNT NUMBER DEFAULT 0;
     V_OFFER_COUNT NUMBER DEFAULT 0;
     V_PROFILE_COUNT NUMBER DEFAULT 0;
+    V_ELIGIBLE_COUNT NUMBER DEFAULT 0;
 BEGIN
     SELECT MAX(STATUS), MAX(REPORTING_MONTH), MAX(CAMPAIGN_TYPE)
       INTO :V_STATUS, :V_REPORTING_MONTH, :V_CAMPAIGN_TYPE
@@ -1298,7 +1299,7 @@ BEGIN
     V_SOURCE_VERSION_ID := UUID_STRING();
     V_LOAD_BATCH_ID := UUID_STRING();
 
-    SELECT SHA2(
+    SELECT COUNT(*), SHA2(
                 COALESCE(TO_VARCHAR(:V_REPORTING_MONTH), '') || '|' ||
                 COALESCE(:V_CAMPAIGN_TYPE, '') || '|' ||
                 COALESCE(TO_VARCHAR(COUNT(*)), '') || '|' ||
@@ -1306,7 +1307,7 @@ BEGIN
                 COALESCE(TO_VARCHAR(MAX(SOURCE_MAIL_DATE)), ''),
                 256
            )
-      INTO :V_SOURCE_HASH
+      INTO :V_ELIGIBLE_COUNT, :V_SOURCE_HASH
     FROM VW_PADM_ACM_OFFER_SOURCE
     WHERE DATE_TRUNC('MONTH', SOURCE_MAIL_DATE)::DATE = :V_REPORTING_MONTH
       AND
@@ -1315,7 +1316,12 @@ BEGIN
          OR (:V_CAMPAIGN_TYPE = 'REMAIL' AND UPPER(TRIM(SOURCE_CAMPAIGN_GROUP_CODE)) IN ('MAP', 'PAREMAIL'))
       );
 
-    IF (V_SOURCE_HASH IS NULL) THEN
+    -- SHA2(...) above always returns a non-null hash even when COUNT(*) = 0 (every piece going
+    -- into it is COALESCE'd to '' first), so the old "IF (V_SOURCE_HASH IS NULL)" check here could
+    -- never actually fire -- a month/type with zero eligible ACM offers fell all the way through
+    -- to the post-insert validation at the end instead, with the far less useful "Source snapshot
+    -- validation failed" message. Check the real row count directly.
+    IF (V_ELIGIBLE_COUNT = 0) THEN
         RETURN 'No eligible ACM offers were found for the campaign month and type.';
     END IF;
 
