@@ -388,7 +388,6 @@ SIGNATURE_COLUMNS = [
     ("CRS_SCORE", "CRS Score", None, False),
     ("NRM", "NRM", None, False),
     ("QUANTITY", "Quantity", "localized", False),
-    ("PRE_SIG_QUANTITY_UNITS", "Quantity (Pre-Sig Estimate)", "localized", False),
     ("NBR", "NBR", "percent", True),
     ("BOARDS", "Boards", "%.1f", True),
     ("CPP", "CPP", "dollar4", False),

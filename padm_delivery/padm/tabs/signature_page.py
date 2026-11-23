@@ -32,10 +32,11 @@ def render(session):
 
     if not rows.empty:
         pre_sig = repository.pre_signature_detail(session, campaign["id"])
-        if not pre_sig.empty and "CAMPAIGN_OFFER_ID" in rows.columns:
-            pre_sig_by_offer = pre_sig.set_index("CAMPAIGN_OFFER_ID")["QUANTITY_UNITS"]
+        if not pre_sig.empty and "CAMPAIGN_OFFER_ID" in rows.columns and "QUANTITY" in rows.columns:
+            pre_sig_units = pre_sig.set_index("CAMPAIGN_OFFER_ID")["QUANTITY_UNITS"].map(ui.parse_volume)
             rows = rows.copy()
-            rows["PRE_SIG_QUANTITY_UNITS"] = rows["CAMPAIGN_OFFER_ID"].map(pre_sig_by_offer)
+            estimate = rows["CAMPAIGN_OFFER_ID"].map(pre_sig_units)
+            rows["QUANTITY"] = rows["QUANTITY"].where(rows["QUANTITY"].notna(), estimate)
         ui.render_signature_page(rows, key=f"sp_table_{campaign['id']}", mask_calculated=True)
         with st.expander("Hidden fields (stored, not part of the sign-off sheet)"):
             hidden = ["OFFER_RESERVATION_CODE", "CAMPAIGN_YEAR", "CAMPAIGN_MONTH", "CAMPAIGN_MONTH_SEQUENCE",
