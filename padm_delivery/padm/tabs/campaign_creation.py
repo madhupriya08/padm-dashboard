@@ -24,12 +24,12 @@ def _picker():
 
 
 def _discover_section(session):
-    st.subheader("Discover / create a campaign")
+    st.subheader("Search for a campaign")
     st.caption("Mandatory ACM filters: program code not starting with W, reservation code ≤ 6 characters, "
                "channel = Mail, offer status = Active. Month/year come from CAMPAIGN_GROUP_MAIL_DATE.")
     reporting_month, campaign_type = _picker()
 
-    if st.button("Discover", icon=":material/search:", key="cc_discover"):
+    if st.button("Search", icon=":material/search:", key="cc_discover"):
         st.session_state["cc_discovered"] = (reporting_month, campaign_type)
 
     discovered = st.session_state.get("cc_discovered")
@@ -51,17 +51,23 @@ def _discover_section(session):
     c4.metric("PADM status", status or "not created", border=True)
     st.dataframe(offers, hide_index=True, height=300, key="cc_offers")
 
-    if status not in (None, "NEW", "DRAFT"):
-        st.info(f"This campaign already exists with status {status}. Select it below.")
+    if status is not None:
+        st.info(f"This campaign already exists with status {status}. Select it below to activate or continue it.")
         return
+
+    def _create():
+        campaign_id = repository.discover_campaign(session, reporting_month, campaign_type)
+        if campaign_id is None:
+            raise ValueError("No eligible ACM offers exist for this month and campaign type.")
+        return campaign_id, "Campaign created -- activate it below to snapshot ACM offers."
+
+    st.subheader("Create campaign")
     with st.container(horizontal=True, vertical_alignment="bottom"):
         reason = ui.reason_input("cc_create_reason")
-        if st.button("Create / Activate Campaign", type="primary", icon=":material/rocket_launch:", key="cc_create"):
+        if st.button("Create Campaign", type="primary", icon=":material/add_box:", key="cc_create"):
             if ui.require_reason(reason):
                 ui.run_action(
-                    SCOPE,
-                    lambda: repository.create_and_activate_campaign(session, reporting_month, campaign_type, reason.strip()),
-                    lambda result: result[1],
+                    SCOPE, _create, lambda result: result[1],
                     on_success=lambda result: st.session_state.update({ui.CAMPAIGN_KEY: result[0]}),
                 )
 
@@ -95,8 +101,8 @@ def _status_section(session, campaign):
             reason = ui.reason_input("cc_activate_reason")
             if st.button("Activate (snapshot ACM)", type="primary", key="cc_activate"):
                 if ui.require_reason(reason):
-                    ui.run_action(SCOPE, lambda: repository.create_and_activate_campaign(
-                        session, campaign["reporting_month"], campaign["type"], reason.strip()),
+                    ui.run_action(SCOPE, lambda: repository.activate_campaign(
+                        session, campaign["id"], reason.strip()),
                         lambda result: result[1])
     elif status in ("DRAFT", "IN_PROGRESS"):
         label = "Start working version" if status == "DRAFT" else f"Save as new working version (v{campaign['working_version'] + 1})"

@@ -157,15 +157,12 @@ def discover_campaign(session, reporting_month, campaign_type):
     return str(rows[0][0]) if rows else None
 
 
-def create_and_activate_campaign(session, reporting_month, campaign_type, reason):
-    """Discover (MERGE) then snapshot ACM via SP_PADM_ACTIVATE_CAMPAIGN (NEW -> DRAFT)."""
-    campaign_id = discover_campaign(session, reporting_month, campaign_type)
-    if campaign_id is None:
-        raise ProcedureError("No eligible ACM offers exist for this month and campaign type.")
+def activate_campaign(session, campaign_id, reason):
+    """Snapshot ACM via SP_PADM_ACTIVATE_CAMPAIGN (NEW -> DRAFT). Campaign must already exist --
+    see discover_campaign()/create_and_activate_campaign() to create one first."""
     status = campaign_status(session, campaign_id)
     if status not in ("NEW", "DRAFT"):
         return campaign_id, f"Campaign already exists with status {status}."
-
     try:
         message = call_proc(session, "SP_PADM_ACTIVATE_CAMPAIGN", [campaign_id, reason])
     except ProcedureError as exc:
@@ -173,6 +170,15 @@ def create_and_activate_campaign(session, reporting_month, campaign_type, reason
             return campaign_id, "Campaign is already active (DRAFT)."
         raise
     return campaign_id, message
+
+
+def create_and_activate_campaign(session, reporting_month, campaign_type, reason):
+    """Discover (MERGE) then snapshot ACM via SP_PADM_ACTIVATE_CAMPAIGN (NEW -> DRAFT). Convenience
+    wrapper combining discover_campaign() + activate_campaign() for callers that want both at once."""
+    campaign_id = discover_campaign(session, reporting_month, campaign_type)
+    if campaign_id is None:
+        raise ProcedureError("No eligible ACM offers exist for this month and campaign type.")
+    return activate_campaign(session, campaign_id, reason)
 
 
 def transition_status(session, campaign_id, to_status, reason, comment=None):
