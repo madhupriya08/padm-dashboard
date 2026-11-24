@@ -8,31 +8,29 @@ merged-cell layout. Since st.data_editor can't merge cells, it gets its own smal
 exactly one row per section (so there is exactly one place to enter it, no per-offer-row
 duplication/conflicts); the main offer grid shows that section's resolved volume read-only.
 
-Quantity % and Quantity (Units) are linked: enter either one (a clean number/percentage, not a
-combined free-text note) and the other is calculated and shown back in that row's other cell
-(seeded from session_state -- see calc_key below -- so it's visible the next time the grid
-redraws, not only after a Save reloads it from the database). Whichever cell you just changed
-wins and recalculates its counterpart -- a row that already has both filled in from a previous
-save still updates the other side when you edit either one (detected by comparing against what
-the grid displayed before this edit), it's not just "whichever side happens to be blank". A clean
-value on either side is also re-displayed in its canonical format (a typed "80" becomes "80%"),
-not just the side that got calculated. It's row-by-row, not all-or-nothing -- some rows in a
-section can use %, others Units, others neither; nothing is ever forced onto a row that was typed
-in explicitly, including a
-section with only one row -- its % is whatever was typed, not assumed to be 100%. Once every row
-but one in a section has a clean value, the single remaining (genuinely blank) row is auto-filled
-with whatever's left of that section's 100% -- this naturally comes out to 100% for a one-row
-section left blank, without forcing it. If the entries already on the OTHER rows in a section add
-up to over 100% on their own, nothing is auto-filled into the remaining row (there's no real
-remainder left to mean anything) and the section is flagged as a validation error (st.error,
-"percentage out of range") -- not silently accepted. A "Remaining % by section" readout right
-below the grid shows each section's running total and what's left (or how far over 100% it is),
-recomputed fresh (no lag) on every edit. Both the remainder fill and the over-allocation check are
-skipped for a section containing free text (e.g. a cutoff-tiered note like "100% (605-645) & 25%
-BAU volume (646+)"), since the true remaining total can't be known for sure then. A single row
-needing two different percentages for two score sub-bands (as in that same example) stays free
-text, typed exactly as the source shows it -- PADM has no data source giving the population split
-between those sub-bands, so that specific split isn't calculated, only flagged.
+Quantity % and Quantity (Units) are linked as a WATERFALL down each section, in row order --
+confirmed directly from the real Matrix tool's own structure (its "BALANCE" rows and approximate
+"~228K"-style calculated remainders only make sense as leftover amounts, not typed numbers), not
+guessed. Each row's % applies to whatever volume is left after the rows above it in the same
+section, not to the section's original total -- so percentages on different rows are not
+comparable or summable the way they would be against one fixed total; each is only meaningful
+relative to its own position. Units are the primary, unambiguous input (a straight subtraction
+from what's left); entering a clean % instead resolves to units the same way, relative to what's
+left at that row. Whichever cell you just changed wins and recalculates its counterpart when a row
+already has both filled in (detected by comparing against what the widget itself returned on the
+previous run -- see prev_key below -- not by comparing against the redisplayed frame, which would
+be unreliable). A clean value is also re-displayed in its canonical format (a typed "80" becomes
+"80%"). It's row-by-row, not all-or-nothing -- some rows in a section can use %, others Units,
+others neither; free text (e.g. a cutoff-tiered note like "100% (605-645) & 25% BAU volume
+(646+)") is left exactly as typed and doesn't consume any of the running total, but does stop that
+section's total from being trustworthy -- PADM has no data source giving the population split for
+that kind of row anyway, so it isn't calculated, only flagged. Once every row but one in a section
+is filled in, the single remaining (genuinely blank) row absorbs whatever's left -- the Matrix
+tool's own "BALANCE" row, made explicit. If the rows already filled in add up to MORE than the
+section's volume on their own, nothing is auto-filled into the remaining row and the section is
+flagged as a real validation error (st.error) instead of silently accepted. An "Allocation by
+section" readout right below the grid shows each section's volume, how much is allocated, and
+what's left (or how far over-allocated it is), recomputed fresh (no lag) on every edit.
 
 Two tables for the offers: a plain editable grid, and a read-only colored preview below it.
 Streamlit's st.data_editor cannot show per-cell (or per-row) background colors while editable --
@@ -247,122 +245,101 @@ def render(session):
         column_config={
             STATUS_COL: st.column_config.TextColumn(STATUS_COL, width="small"),
             vol_label: st.column_config.TextColumn(vol_label, help="Set above, one per section."),
-            pct_label: st.column_config.TextColumn(pct_label),
+            pct_label: st.column_config.TextColumn(
+                pct_label, help="Waterfall: % of what's LEFT in this section after the rows above it, "
+                "not of the section's original total."),
             units_label: st.column_config.TextColumn(units_label),
             owner_label: st.column_config.TextColumn(owner_label),
         },
         key=f"psp_editor_{campaign['id']}",
     )
 
-    # Quantity % and Quantity (Units) are linked through the section's resolved volume. Whichever
-    # cell you just changed THIS edit wins and recalculates the other -- not just "whichever side
-    # is blank": a row can already have both filled in (from a previous save), and editing either
-    # one must still update its counterpart, not leave the other one stale. "Changed" ONLY means
-    # "different from what the widget itself returned on the previous run" (prev_values, updated
-    # at the bottom of this function) -- not "different from frame", which would be unreliable
-    # (see prev_key's comment above). If neither or both changed at once (first load, or a paste
-    # that touched both cells together), falls back to "whichever side is blank" as before. Free-
-    # text/combined entries (not a single clean number) are left exactly as typed on both sides --
-    # no calculation applied. Any clean value is also re-displayed in its canonical format (a typed
-    # "80" becomes "80%").
+    # Quantity % and Quantity (Units) are linked as a WATERFALL down each section, in row order --
+    # confirmed directly from the real Matrix tool (its own "BALANCE" rows and approximate "~228K"-
+    # style calculated remainders prove this, not a guess): each row's % applies to whatever volume
+    # is LEFT after the rows above it in the same section, not to the section's original total.
+    # Units are the primary, unambiguous input (a straight subtraction from what's left); % is a
+    # convenience that resolves to units the same way. Whichever cell you just changed THIS edit
+    # wins when a row already has both filled in (detected by comparing against what the widget
+    # itself returned on the previous run, prev_values -- comparing against `frame` would be
+    # unreliable, see prev_key's comment above). A row's % is therefore only meaningful relative to
+    # ITS OWN position in the section -- percentages across different rows are not comparable or
+    # summable the way they would be against a fixed total. Free-text/combined entries (not a
+    # single clean number) are left exactly as typed and don't consume any of the running total.
     final_pct, final_units = edited[pct_label].copy(), edited[units_label].copy()
     new_prev_values = {}
-    for i in rows.index:
-        oid = offer_ids[i]
-        volume = ui.num(resolved_volume.loc[i])
-        pct_text, units_text = _text(edited.loc[i, pct_label]), _text(edited.loc[i, units_label])
-        pct = ui.parse_percent(pct_text)
-        units = ui.parse_volume(units_text)
-        prev = prev_values.get(oid, {})
-        pct_changed = pct_text != prev.get("pct", _text(frame.loc[i, pct_label]))
-        units_changed = units_text != prev.get("units", _text(frame.loc[i, units_label]))
-        new_prev_values[oid] = {"pct": pct_text, "units": units_text}
-        if pct is not None:
-            final_pct.loc[i] = ui.format_percent(pct)
-        if units is not None:
-            final_units.loc[i] = ui.format_volume(units)
-        if volume:
-            if units_changed and not pct_changed and units is not None:
-                final_pct.loc[i] = ui.format_percent(units / volume * 100)
-            elif pct_changed and not units_changed and pct is not None:
-                final_units.loc[i] = ui.format_volume(volume * pct / 100)
-            elif pct is not None and units is None:
-                final_units.loc[i] = ui.format_volume(volume * pct / 100)
-            elif units is not None and pct is None:
-                final_pct.loc[i] = ui.format_percent(units / volume * 100)
-
-    # Section-level allocation: how much % is accounted for so far in each section (never allowed
-    # to exceed 100% of that section's volume), and (when exactly one row is still blank) auto-
-    # fill that one row with whatever's left of 100% -- its Units follow from that. The auto-fill
-    # is skipped, and the section flagged as over-allocated instead, once the OTHER rows alone
-    # already add up to more than 100% -- there would be nothing left for a remainder to mean.
-    # Skipped entirely (both the remainder fill and a trustworthy running total) when any other
-    # row in the section is free text (e.g. a cutoff-tiered note like "100% (605-645) & 25% BAU
-    # volume (646+)"), since the true remaining % can't be known for sure then.
     OVER_ALLOCATED_TOLERANCE = 1e-6
-    section_allocation = {}
-    for key in section_keys:
-        idx = section_rows[key]
-        blanks, clean_total, skip = [], 0.0, False
-        for i in idx:
-            raw_pct, raw_units = _text(final_pct.loc[i]), _text(final_units.loc[i])
-            if raw_pct == "" and raw_units == "":
-                blanks.append(i)
-                continue
-            pct = ui.parse_percent(final_pct.loc[i])
-            units = ui.parse_volume(final_units.loc[i])
-            volume = ui.num(resolved_volume.loc[i])
-            if pct is not None:
-                clean_total += pct
-            elif units is not None and volume:
-                clean_total += units / volume * 100
-            else:
-                skip = True  # free text, or Units with no section volume to convert against
-        section_volume_total = ui.num(resolved_volume.loc[idx[0]]) if len(idx) else None
-        over_allocated = (not skip) and clean_total > 100 + OVER_ALLOCATED_TOLERANCE
-        section_allocation[key] = (clean_total, skip, over_allocated, section_volume_total)
-        if skip or over_allocated or len(blanks) != 1:
-            continue
-        i = blanks[0]
-        volume = ui.num(resolved_volume.loc[i])
-        if not volume:
-            continue
-        remainder = 100 - clean_total
-        final_pct.loc[i] = ui.format_percent(remainder)
-        final_units.loc[i] = ui.format_volume(volume * remainder / 100)
-
-    # Live readout (not a second table -- a short line per section): how much % (and volume) is
-    # allocated so far and what's left, computed fresh from this run's edits (no rerun lag, unlike
-    # the grid's own Status column). Over-allocated sections (adding up to more than 100%) are
-    # called out explicitly instead of just showing a quietly negative "remaining" number, AND
-    # raised as a real validation error (st.error), not just a line in the summary below.
     remaining_lines = []
     over_allocated_errors = []
     for key in section_keys:
-        clean_total, skip, over_allocated, volume = section_allocation[key]
-        if skip:
+        idx = section_rows[key]
+        volume = ui.num(section_volume.get(key))
+        remaining = volume
+        skip = False
+        blanks = []
+        for i in idx:
+            oid = offer_ids[i]
+            pct_text, units_text = _text(edited.loc[i, pct_label]), _text(edited.loc[i, units_label])
+            pct = ui.parse_percent(pct_text)
+            units = ui.parse_volume(units_text)
+            prev = prev_values.get(oid, {})
+            pct_changed = pct_text != prev.get("pct", _text(frame.loc[i, pct_label]))
+            units_changed = units_text != prev.get("units", _text(frame.loc[i, units_label]))
+            new_prev_values[oid] = {"pct": pct_text, "units": units_text}
+
+            if pct_text == "" and units_text == "":
+                blanks.append(i)
+                continue
+            if pct is None and units is None:
+                skip = True  # free text -- doesn't consume any of the running total
+                continue
+            if remaining is None:
+                # No section volume set yet -- just canonical-format what's typed, no waterfall math.
+                if pct is not None:
+                    final_pct.loc[i] = ui.format_percent(pct)
+                if units is not None:
+                    final_units.loc[i] = ui.format_volume(units)
+                continue
+
+            if units_changed and not pct_changed and units is not None:
+                row_units = units
+            elif pct_changed and not units_changed and pct is not None:
+                row_units = remaining * pct / 100
+            elif units is not None:
+                row_units = units
+            else:
+                row_units = remaining * pct / 100
+            final_units.loc[i] = ui.format_volume(row_units)
+            final_pct.loc[i] = ui.format_percent(row_units / remaining * 100) if remaining else ui.format_percent(0)
+            remaining -= row_units
+
+        if not skip and len(blanks) == 1 and remaining is not None:
+            # The Matrix tool's own "BALANCE" row -- the one remaining blank row absorbs whatever's
+            # left of the section, zeroing it out, instead of being left for the user to compute.
+            i = blanks[0]
+            final_units.loc[i] = ui.format_volume(remaining)
+            final_pct.loc[i] = ui.format_percent(100)
+            remaining = 0.0
+
+        if volume is None:
+            remaining_lines.append(f"- {section_label(key)}: set a Total Available Volume above to allocate.")
+        elif skip:
             remaining_lines.append(f"- {section_label(key)}: can't total (contains free-text entries).")
-        elif over_allocated:
-            over_units = ui.format_volume(volume * (clean_total - 100) / 100) if volume else "?"
-            remaining_lines.append(f"- ⚠️ {section_label(key)}: {clean_total:g}% allocated -- "
-                                    f"OVER 100% by {clean_total - 100:g}% ({over_units} too many units).")
+        elif remaining is not None and remaining < -OVER_ALLOCATED_TOLERANCE:
+            over_units = ui.format_volume(-remaining)
+            remaining_lines.append(f"- ⚠️ {section_label(key)}: OVER-ALLOCATED by {over_units} units "
+                                    f"(of {ui.format_volume(volume)} available).")
             over_allocated_errors.append(
-                f"**{section_label(key)}**: percentage out of range -- entries add up to "
-                f"{clean_total:g}%, which is {clean_total - 100:g}% over 100% ({over_units} too "
-                "many units for this section's Total Available Volume). Reduce one or more entries.")
-        elif volume:
-            allocated_units = ui.format_volume(volume * clean_total / 100)
-            remaining_units = ui.format_volume(volume * (100 - clean_total) / 100)
-            remaining_lines.append(f"- {section_label(key)}: {clean_total:g}% allocated "
-                                    f"({allocated_units} of {ui.format_volume(volume)}), "
-                                    f"{100 - clean_total:g}% remaining ({remaining_units}).")
+                f"**{section_label(key)}**: entries exceed this section's Total Available Volume "
+                f"by {over_units} units. Reduce one or more entries.")
         else:
-            remaining_lines.append(f"- {section_label(key)}: {clean_total:g}% allocated, "
-                                    f"{100 - clean_total:g}% remaining (set a Total Available "
-                                    "Volume above to see units).")
+            allocated = volume - remaining
+            remaining_lines.append(f"- {section_label(key)}: {ui.format_volume(allocated)} of "
+                                    f"{ui.format_volume(volume)} allocated, {ui.format_volume(remaining)} remaining.")
     if over_allocated_errors:
         st.error("\n\n".join(over_allocated_errors))
-    st.markdown("**Remaining % by section:**\n\n" + "\n".join(remaining_lines))
+    st.markdown("**Allocation by section (waterfall -- each row from what's left after the rows "
+                "above it):**\n\n" + "\n".join(remaining_lines))
 
     # Read-only colored preview: the one thing an editable st.data_editor categorically cannot do,
     # no matter which columns are involved, is paint a cell's background -- that's true for a
