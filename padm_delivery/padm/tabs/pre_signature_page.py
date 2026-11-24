@@ -11,10 +11,14 @@ duplication/conflicts); the main offer grid shows that section's resolved volume
 Quantity % and Quantity (Units) are linked: enter either one (a clean number/percentage, not a
 combined free-text note) and the other is calculated and shown back in that row's other cell
 (seeded from session_state -- see calc_key below -- so it's visible the next time the grid
-redraws, not only after a Save reloads it from the database). A clean value on either side is also
-re-displayed in its canonical format (a typed "80" becomes "80%"), not just the side that got
-calculated. It's row-by-row, not all-or-nothing -- some rows in a section can use %, others Units,
-others neither; nothing is ever forced onto a row that was typed in explicitly, including a
+redraws, not only after a Save reloads it from the database). Whichever cell you just changed
+wins and recalculates its counterpart -- a row that already has both filled in from a previous
+save still updates the other side when you edit either one (detected by comparing against what
+the grid displayed before this edit), it's not just "whichever side happens to be blank". A clean
+value on either side is also re-displayed in its canonical format (a typed "80" becomes "80%"),
+not just the side that got calculated. It's row-by-row, not all-or-nothing -- some rows in a
+section can use %, others Units, others neither; nothing is ever forced onto a row that was typed
+in explicitly, including a
 section with only one row -- its % is whatever was typed, not assumed to be 100%. Once every row
 but one in a section has a clean value, the single remaining (genuinely blank) row is auto-filled
 with whatever's left of that section's 100% -- this naturally comes out to 100% for a one-row
@@ -240,23 +244,33 @@ def render(session):
         key=f"psp_editor_{campaign['id']}",
     )
 
-    # Quantity % and Quantity (Units) are linked through the section's resolved volume: whichever
-    # one is a clean number, the other is calculated from it. Free-text/combined entries (not a
-    # single clean number) are left exactly as typed on both sides -- no calculation applied. Any
-    # clean value on EITHER side is also re-displayed in its canonical format (e.g. a typed "80"
-    # becomes "80%"), not just the side that got calculated -- previously only the calculated side
-    # was reformatted, so a directly-typed percentage could display with no "%" at all.
+    # Quantity % and Quantity (Units) are linked through the section's resolved volume. Whichever
+    # cell you just changed THIS edit wins and recalculates the other -- not just "whichever side
+    # is blank": a row can already have both filled in (from a previous save), and editing either
+    # one must still update its counterpart, not leave the other one stale. "Changed" is detected
+    # by comparing against what the grid displayed before this edit (`frame`, built from what's
+    # saved/previously computed). If neither or both changed at once (first load, or a paste that
+    # touched both cells together), falls back to "whichever side is blank" as before. Free-text/
+    # combined entries (not a single clean number) are left exactly as typed on both sides -- no
+    # calculation applied. Any clean value is also re-displayed in its canonical format (a typed
+    # "80" becomes "80%").
     final_pct, final_units = edited[pct_label].copy(), edited[units_label].copy()
     for i in rows.index:
         volume = ui.num(resolved_volume.loc[i])
         pct = ui.parse_percent(edited.loc[i, pct_label])
         units = ui.parse_volume(edited.loc[i, units_label])
+        pct_changed = _text(edited.loc[i, pct_label]) != _text(frame.loc[i, pct_label])
+        units_changed = _text(edited.loc[i, units_label]) != _text(frame.loc[i, units_label])
         if pct is not None:
             final_pct.loc[i] = ui.format_percent(pct)
         if units is not None:
             final_units.loc[i] = ui.format_volume(units)
         if volume:
-            if pct is not None and units is None:
+            if units_changed and not pct_changed and units is not None:
+                final_pct.loc[i] = ui.format_percent(units / volume * 100)
+            elif pct_changed and not units_changed and pct is not None:
+                final_units.loc[i] = ui.format_volume(volume * pct / 100)
+            elif pct is not None and units is None:
                 final_units.loc[i] = ui.format_volume(volume * pct / 100)
             elif units is not None and pct is None:
                 final_pct.loc[i] = ui.format_percent(units / volume * 100)
