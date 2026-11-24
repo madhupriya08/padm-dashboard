@@ -1,6 +1,7 @@
 """UI pieces shared by every tab: header bar, read-only lock, actions/flash messages, change
 reason boxes, Tier x Times Mailed grids and the signature-page table."""
 
+import colorsys
 import math
 import re
 import traceback
@@ -307,6 +308,42 @@ def segment_color(segment, description=""):
         if rule(seg, desc):
             return color
     return None
+
+
+# Nearest-match palette for showing a segment's real Matrix color as a plain-text emoji square --
+# the only way to show actual color on a value inside an editable st.data_editor grid, which can't
+# render cell background colors at all. Matched by HUE (not raw RGB distance -- tried that first;
+# since the real Matrix colors are mostly pale pastel tints, plain RGB distance put almost every
+# one of them nearest to plain white, which showed no differentiation at all). This is still a
+# many-to-one approximation (19 distinct Matrix hex colors -> ~7 emoji square colors), not a 1:1
+# match -- several segment colors legitimately map to the same square. Use segment_color() itself
+# (e.g. in a read-only st.dataframe) wherever exact color fidelity matters.
+_EMOJI_HUE_PALETTE = [
+    ("\U0001F7E5", 0 / 360),     # 🟥 red
+    ("\U0001F7E7", 30 / 360),    # 🟧 orange
+    ("\U0001F7E8", 60 / 360),    # 🟨 yellow
+    ("\U0001F7E9", 120 / 360),   # 🟩 green
+    ("\U0001F7E6", 220 / 360),   # 🟦 blue
+    ("\U0001F7EA", 285 / 360),   # 🟪 purple
+]
+
+
+def segment_color_emoji(segment, description=""):
+    """Nearest emoji-square approximation of segment_color(segment, description), or "" if no
+    Matrix color rule matches. See _EMOJI_HUE_PALETTE for the tradeoff this makes."""
+    hex_color = segment_color(segment, description)
+    if hex_color is None:
+        return ""
+    r, g, b = int(hex_color[1:3], 16) / 255, int(hex_color[3:5], 16) / 255, int(hex_color[5:7], 16) / 255
+    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    if s < 0.04:
+        return "⬜" if v > 0.75 else ("⬛" if v < 0.4 else "\U0001F7EB")  # ⬜ / ⬛ / 🟫
+    best_emoji, best_dist = "", None
+    for emoji, hue in _EMOJI_HUE_PALETTE:
+        dist = min(abs(h - hue), 1 - abs(h - hue))
+        if best_dist is None or dist < best_dist:
+            best_emoji, best_dist = emoji, dist
+    return best_emoji
 
 
 _VOLUME_SHORTHAND = re.compile(r"^\$?([0-9]*\.?[0-9]+)\s*(k|m|mm)?$", re.IGNORECASE)

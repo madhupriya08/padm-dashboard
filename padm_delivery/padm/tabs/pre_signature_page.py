@@ -176,6 +176,14 @@ def render(session):
     frame[STATUS_COL] = [status_state.get(oid, initial_status(i)) for i, oid in zip(rows.index, offer_ids)]
     for source, label in ui.MATRIX_COLUMNS:
         frame[label] = rows[source] if source in rows.columns else None
+    # Matrix segment color, approximated as an emoji square (editable grids can't show real cell
+    # background colors) -- prefixed onto the Segment column's own text.
+    if "Segment" in frame.columns:
+        def _segment_cell(s, d):
+            emoji = ui.segment_color_emoji(s, d)
+            return (f"{emoji} " if emoji else "") + _text(s)
+        frame["Segment"] = [_segment_cell(s, d) for s, d in
+                             zip(rows.get("ACM_SEGMENT", ""), rows.get("SEGMENT_DESCRIPTION", ""))]
     frame[vol_label] = [ui.format_volume(resolved_volume.loc[i])
                          if i == first_row_of_section[rows.loc[i, "_SECTION"]] else ""
                          for i in rows.index]
