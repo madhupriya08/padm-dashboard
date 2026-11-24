@@ -23,15 +23,19 @@ sub-bands (as in that same example) stays free text, typed exactly as the source
 has no data source giving the population split between those sub-bands, so that specific split
 isn't calculated, only flagged.
 
-One single editable grid for the offers (no separate preview table). Streamlit's st.data_editor
-cannot show per-cell background colors while editable -- there is no supported way around that --
-so "color coding" here is a leading Status column inside the SAME grid: a green/red circle per row,
-green once every tracking value you've entered matches what's saved, red if anything differs. It
-updates one rerun behind your very latest keystroke (the status shown reflects the edit before the
-one just made, carried across reruns via session_state) -- the same kind of reactive lag every
-other derived value on this page already has (e.g. the %/Units auto-fill), not something special to
-this column. Segment identification is conveyed by the Segment column's text, not a background
-color, for the same reason."""
+Two tables for the offers: a plain editable grid, and a read-only colored preview below it.
+Streamlit's st.data_editor cannot show per-cell (or per-row) background colors while editable --
+there is no supported way around that, for a single cell or a whole row alike -- so:
+- The editable grid carries a leading Status column instead: a green/red circle per row, green
+  once every tracking value you've entered matches what's saved, red if anything differs. It
+  updates one rerun behind your very latest keystroke (the status shown reflects the edit before
+  the one just made, carried across reruns via session_state) -- the same kind of reactive lag
+  every other derived value on this page already has. The Segment column also carries an emoji
+  square approximating that row's real Matrix color (see ui.segment_color_emoji()).
+- The read-only preview mirrors Segment Viewer's own proven styling pattern (a same-shape
+  DataFrame of CSS strings applied with Styler.apply(..., axis=None)) to color the WHOLE row by
+  its real Matrix segment hex color -- everything except the 4 tracking columns on the right,
+  which are left plain."""
 
 import pandas as pd
 import streamlit as st
@@ -289,6 +293,30 @@ def render(session):
             remaining_lines.append(f"- {section_label(key)}: {clean_total:g}% allocated, "
                                     f"{100 - clean_total:g}% remaining.")
     st.markdown("**Remaining % by section:**\n\n" + "\n".join(remaining_lines))
+
+    # Read-only colored preview: the one thing an editable st.data_editor categorically cannot do,
+    # no matter which columns are involved, is paint a cell's background -- that's true for a
+    # single cell and for a whole row alike. Real per-row color therefore has to live in a second,
+    # read-only table, built the same way Segment Viewer's own (confirmed-working) colored grid is:
+    # a same-shape DataFrame of CSS strings applied via Styler.apply(fn, axis=None). Every column
+    # gets the row's segment color EXCEPT the 4 tracking columns (Volume/Quantity %/Quantity
+    # Units/Owner-Approver), left plain, as asked.
+    preview = frame.copy()
+    preview[pct_label] = final_pct
+    preview[units_label] = final_units
+    preview[owner_label] = edited[owner_label]
+    uncolored = {vol_label, pct_label, units_label, owner_label}
+    highlight = pd.DataFrame("", index=preview.index, columns=preview.columns)
+    for i in rows.index:
+        base_hex = rows.loc[i, "_SECTION"]
+        if base_hex != "none":
+            for col in preview.columns:
+                if col not in uncolored:
+                    highlight.loc[i, col] = f"background-color: {base_hex}"
+    st.caption("Preview (read-only) -- whole row colored by Matrix segment, except the 4 tracking "
+               "columns on the right.")
+    st.dataframe(preview.style.apply(lambda _: highlight, axis=None),
+                 hide_index=True, use_container_width=True, key=f"psp_preview_{campaign['id']}")
 
     # Persist this run's calculated %/Units so the NEXT rerun's grid shows them (see calc_state
     # above) instead of only updating after a Save reloads from the database.
