@@ -825,6 +825,32 @@ WHERE O.CAMPAIGN_GROUP_MAIL_DATE IS NOT NULL
         )
     ) <= 6;
 
+-- Confirmed live via DESC TABLE on 2026-11-24 (column list and types below match exactly) --
+-- this statement was missing from the delivered scripts even though the table already exists
+-- live; IF NOT EXISTS makes it safe to run without touching the real table or its data.
+-- SEGMENT_ID / RESPONSE_MODEL_TIER / TIMES_MAILED_BUCKET are nullable by design: the view below
+-- joins this table three times (exact cell, then segment-level fallback with both NULL, then
+-- campaign-level fallback with all three NULL) -- the fallback rows can only exist with these
+-- columns nullable.
+CREATE TABLE IF NOT EXISTS DM_PADM_EMS_RATE_VERSION
+(
+    EMS_RATE_VERSION_ID VARCHAR NOT NULL,
+    CAMPAIGN_ID VARCHAR NOT NULL,
+    SEGMENT_ID VARCHAR,
+    RESPONSE_MODEL_TIER NUMBER(10,0),
+    TIMES_MAILED_BUCKET VARCHAR,
+    VERSION_NUMBER NUMBER(10,0) NOT NULL,
+    EMS_REDUCTION_RATE NUMBER(18,8) NOT NULL,
+    RATE_SOURCE VARCHAR,
+    VALID_FROM_TS TIMESTAMP_NTZ NOT NULL,
+    VALID_TO_TS TIMESTAMP_NTZ,
+    IS_CURRENT BOOLEAN NOT NULL DEFAULT TRUE,
+    CHANGE_REASON VARCHAR,
+    CREATED_BY VARCHAR NOT NULL DEFAULT CURRENT_USER(),
+    CREATED_TS TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    CONSTRAINT PK_PADM_EMS_RATE_VERSION PRIMARY KEY (EMS_RATE_VERSION_ID)
+);
+
 CREATE OR REPLACE VIEW VW_PADM_SEGMENT_CALCULATION_CURRENT AS
 WITH GRID AS
 (
