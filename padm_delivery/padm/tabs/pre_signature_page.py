@@ -9,15 +9,19 @@ exactly one row per section (so there is exactly one place to enter it, no per-o
 duplication/conflicts); the main offer grid shows that section's resolved volume read-only.
 
 Quantity % and Quantity (Units) are linked: enter either one (a clean number/percentage, not a
-combined free-text note) and the other is calculated from the section's Total Available Volume.
-It's row-by-row, not all-or-nothing -- some rows in a section can use %, others Units, others
-neither. Additionally, once every row but one in a section has a clean value, the single remaining
-row is auto-filled with whatever's left of that section's 100% -- unless any other row in the
-section is free text (e.g. a cutoff-tiered note like "100% (605-645) & 25% BAU volume (646+)"),
-in which case the remaining total can't be known for sure and nothing is auto-filled. A single row
-needing two different percentages for two score sub-bands (as in that same example) stays free
-text, typed exactly as the source shows it -- PADM has no data source giving the population split
-between those sub-bands, so that specific split isn't calculated, only flagged.
+combined free-text note) and the other is calculated and shown back in that row's other cell
+(seeded from session_state -- see calc_key below -- so it's visible the next time the grid
+redraws, not only after a Save reloads it from the database). It's row-by-row, not all-or-nothing
+-- some rows in a section can use %, others Units, others neither. Additionally, once every row
+but one in a section has a clean value, the single remaining row is auto-filled with whatever's
+left of that section's 100%. A "Remaining % by section" readout right below the grid shows each
+section's running total and what's left, recomputed fresh (no lag) on every edit. Both the
+remainder fill and the readout are skipped for a section containing free text (e.g. a
+cutoff-tiered note like "100% (605-645) & 25% BAU volume (646+)"), since the true remaining total
+can't be known for sure then. A single row needing two different percentages for two score
+sub-bands (as in that same example) stays free text, typed exactly as the source shows it -- PADM
+has no data source giving the population split between those sub-bands, so that specific split
+isn't calculated, only flagged.
 
 One single editable grid for the offers (no separate preview table). Streamlit's st.data_editor
 cannot show per-cell background colors while editable -- there is no supported way around that --
@@ -155,6 +159,12 @@ def render(session):
     status_state = st.session_state.get(status_key, {})
     offer_ids = [str(rows.loc[i, "CAMPAIGN_OFFER_ID"]) for i in rows.index]
 
+    # Quantity %/Units auto-fill (computed after the grid below renders, same as Status) is seeded
+    # back in here from session_state -- otherwise the cell you DIDN'T type into would only ever
+    # show the calculated value after you hit Save (reload from the database), not as you work.
+    calc_key = f"psp_calc_{campaign['id']}"
+    calc_state = st.session_state.get(calc_key, {})
+
     def initial_status(i):
         """Status for a row session_state has no computed value for yet -- i.e. before the first
         edit this session. Falls back to what's actually saved (not blank), so a campaign loaded
@@ -187,10 +197,14 @@ def render(session):
     frame[vol_label] = [ui.format_volume(resolved_volume.loc[i])
                          if i == first_row_of_section[rows.loc[i, "_SECTION"]] else ""
                          for i in rows.index]
-    frame[NEW_LABELS["QUANTITY_PERCENTAGE"]] = saved["QUANTITY_PERCENTAGE"].map(
-        lambda v: _display_text(v, ui.parse_percent, ui.format_percent))
-    frame[NEW_LABELS["QUANTITY_UNITS"]] = saved["QUANTITY_UNITS"].map(
-        lambda v: _display_text(v, ui.parse_volume, ui.format_volume))
+    frame[NEW_LABELS["QUANTITY_PERCENTAGE"]] = [
+        calc_state.get(oid, {}).get("pct", _display_text(saved.loc[i, "QUANTITY_PERCENTAGE"],
+                                                           ui.parse_percent, ui.format_percent))
+        for i, oid in zip(rows.index, offer_ids)]
+    frame[NEW_LABELS["QUANTITY_UNITS"]] = [
+        calc_state.get(oid, {}).get("units", _display_text(saved.loc[i, "QUANTITY_UNITS"],
+                                                             ui.parse_volume, ui.format_volume))
+        for i, oid in zip(rows.index, offer_ids)]
     frame[NEW_LABELS["OWNER_APPROVER"]] = saved["OWNER_APPROVER"].map(_text)
 
     st.subheader("Offers")
@@ -229,13 +243,12 @@ def render(session):
             elif units is not None and pct is None:
                 final_pct.loc[i] = ui.format_percent(units / volume * 100)
 
-    # Section-level remainder: within one section, once every row but one has a clean % or Units
-    # entered, the one remaining blank row is filled with whatever's left of 100% (section total
-    # minus what's already allocated to the other rows), and its Units from that. Only acts when
-    # EXACTLY one row in the section is genuinely blank and every other row resolved to a clean
-    # percentage -- a free-text entry (e.g. a cutoff-tiered note like "100% (605-645) & 25% BAU
-    # volume (646+)") makes the remaining total impossible to know for sure, so the whole section
-    # is left alone rather than guessing.
+    # Section-level allocation: how much % is accounted for so far in each section, and (when
+    # exactly one row is still blank) auto-fill that one row with whatever's left of 100% -- its
+    # Units follow from that. Skipped (both the remainder fill and a trustworthy running total)
+    # when any other row in the section is free text (e.g. a cutoff-tiered note like "100%
+    # (605-645) & 25% BAU volume (646+)"), since the true remaining % can't be known for sure then.
+    section_allocation = {}
     for key in section_keys:
         idx = section_rows[key]
         blanks, clean_total, skip = [], 0.0, False
@@ -253,6 +266,7 @@ def render(session):
                 clean_total += units / volume * 100
             else:
                 skip = True  # free text, or Units with no section volume to convert against
+        section_allocation[key] = (clean_total, skip)
         if skip or len(blanks) != 1:
             continue
         i = blanks[0]
@@ -262,6 +276,25 @@ def render(session):
         remainder = 100 - clean_total
         final_pct.loc[i] = ui.format_percent(remainder)
         final_units.loc[i] = ui.format_volume(volume * remainder / 100)
+
+    # Live readout (not a second table -- a short line per section): how much % is allocated so
+    # far and what's left, computed fresh from this run's edits (no rerun lag, unlike the grid's
+    # own Status column).
+    remaining_lines = []
+    for key in section_keys:
+        clean_total, skip = section_allocation[key]
+        if skip:
+            remaining_lines.append(f"- {section_label(key)}: can't total (contains free-text entries).")
+        else:
+            remaining_lines.append(f"- {section_label(key)}: {clean_total:g}% allocated, "
+                                    f"{100 - clean_total:g}% remaining.")
+    st.markdown("**Remaining % by section:**\n\n" + "\n".join(remaining_lines))
+
+    # Persist this run's calculated %/Units so the NEXT rerun's grid shows them (see calc_state
+    # above) instead of only updating after a Save reloads from the database.
+    st.session_state[calc_key] = {
+        offer_ids[i]: {"pct": final_pct.loc[i], "units": final_units.loc[i]} for i in rows.index
+    }
 
     # Recompute save state from this run's edits, for the Status column on the NEXT rerun.
     def changed(current, saved_values, parser=None):
