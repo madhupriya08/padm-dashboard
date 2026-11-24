@@ -27,6 +27,8 @@ show per-cell or per-row background colors while editable, so the grid carries a
 each row's Matrix segment color; the preview colors the whole row with the real segment hex color,
 using the same Styler pattern as Segment Viewer."""
 
+from collections import Counter
+
 import pandas as pd
 import streamlit as st
 
@@ -109,10 +111,25 @@ def render(session):
     section_keys = list(dict.fromkeys(rows["_SECTION"]))
     section_rows = {key: rows.index[rows["_SECTION"] == key] for key in section_keys}
 
-    def section_label(key):
+    def _section_names(key):
         names = sorted({str(s).strip() for s in rows.loc[section_rows[key], "ACM_SEGMENT"].dropna()
                          if str(s).strip()})
         return ", ".join(names) if names else "(uncategorized)"
+
+    # Two sections can share the same segment name text (e.g. an MLA-flagged EXPANSION offer gets
+    # its own Matrix color, distinct from plain EXPANSION, per ui._SEGMENT_COLOR_CHAIN) -- tag the
+    # label so they don't read as a duplicate in the UI.
+    _base_labels = {key: _section_names(key) for key in section_keys}
+    _label_counts = Counter(_base_labels.values())
+
+    def section_label(key):
+        label = _base_labels[key]
+        if _label_counts[label] > 1:
+            descs = {str(d).strip().lower() for d in
+                      rows.loc[section_rows[key], "SEGMENT_DESCRIPTION"].dropna()}
+            if any("mla" in d for d in descs):
+                return f"{label} (MLA)"
+        return label
 
     def section_saved_volume(key):
         for i in section_rows[key]:
