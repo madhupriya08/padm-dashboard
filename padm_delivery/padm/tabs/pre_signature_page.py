@@ -14,8 +14,9 @@ combined free-text note) and the other is calculated from the section's Total Av
 Two tables below the editors: a plain editable grid, and a read-only colored preview. Streamlit
 cannot show live cell colors on an editable grid itself (the same limitation Segment Viewer hit)
 -- the preview mirrors Segment Viewer's own proven styling pattern (a same-shape DataFrame of CSS
-strings applied with Styler.apply(..., axis=None)) to show the Matrix tool's segment color-coding,
-plus red for unsaved edits."""
+strings applied with Styler.apply(..., axis=None)). Non-tracking (Matrix) columns are colored by
+Matrix segment section; the 4 tracking columns instead show save state -- green once a value is
+saved, red while it's typed but not yet saved (flips to green on the next run after Save)."""
 
 import pandas as pd
 import streamlit as st
@@ -31,6 +32,7 @@ NEW_LABELS = {
     "OWNER_APPROVER": "Owner/Approver",
 }
 RED_UNSAVED = "background-color: #fca5a5"
+GREEN_SAVED = "background-color: #86efac"
 
 
 def _text(value):
@@ -196,23 +198,37 @@ def render(session):
             flags.append(_text(cur) != _text(base))
         return pd.Series(flags, index=rows.index)
 
-    unsaved = {
-        vol_label: changed(resolved_volume, saved["TOTAL_AVAILABLE_VOLUME"], ui.num),
-        pct_label: changed(final_pct, saved["QUANTITY_PERCENTAGE"], ui.parse_percent),
-        units_label: changed(final_units, saved["QUANTITY_UNITS"], ui.parse_volume),
-        owner_label: changed(edited[owner_label], saved["OWNER_APPROVER"]),
+    # Tracking columns: current value + the parser that tells a "real value" from blank, used both
+    # for the unsaved-diff check and for deciding whether a saved cell is non-empty (-> green).
+    tracking = {
+        vol_label: (resolved_volume.map(ui.format_volume), saved["TOTAL_AVAILABLE_VOLUME"], ui.num),
+        pct_label: (final_pct, saved["QUANTITY_PERCENTAGE"], ui.parse_percent),
+        units_label: (final_units, saved["QUANTITY_UNITS"], ui.parse_volume),
+        owner_label: (edited[owner_label], saved["OWNER_APPROVER"], None),
     }
+    unsaved = {label: changed(current, base, parser) for label, (current, base, parser) in tracking.items()}
 
     highlight = pd.DataFrame("", index=preview.index, columns=preview.columns)
     for i in rows.index:
         base_hex = rows.loc[i, "_SECTION"]
         if base_hex != "none":
             highlight.loc[i, :] = f"background-color: {base_hex}"
-    for label, flags in unsaved.items():
-        highlight.loc[flags, label] = RED_UNSAVED
+    # Tracking columns show save state instead of section color: red = typed here but not saved
+    # yet, green = saved (matches the database) and not blank. Saving flips red -> green because
+    # the rerun after a save re-reads `saved` from the database, so nothing is "unsaved" any more.
+    for label, (current, _base, parser) in tracking.items():
+        for i in rows.index:
+            if unsaved[label].loc[i]:
+                highlight.loc[i, label] = RED_UNSAVED
+            else:
+                value = current.loc[i]
+                present = (parser(value) is not None) if parser is not None else (_text(value) != "")
+                if present:
+                    highlight.loc[i, label] = GREEN_SAVED
 
-    st.caption("Preview (read-only) -- colored by Matrix segment section; red = entered here but not "
-               "yet saved.")
+    st.caption("Preview (read-only) -- non-tracking columns colored by Matrix segment section. "
+               "Tracking columns (Volume / Quantity % / Quantity Units / Owner-Approver): green = "
+               "saved, red = entered here but not yet saved.")
     st.dataframe(preview.style.apply(lambda _: highlight, axis=None),
                  hide_index=True, use_container_width=True, key=f"psp_preview_{campaign['id']}")
 
