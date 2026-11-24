@@ -14,12 +14,16 @@ combined free-text note) and the other is calculated and shown back in that row'
 redraws, not only after a Save reloads it from the database). A clean value on either side is also
 re-displayed in its canonical format (a typed "80" becomes "80%"), not just the side that got
 calculated. It's row-by-row, not all-or-nothing -- some rows in a section can use %, others Units,
-others neither. A section with exactly one row always represents 100% of that section (and the
-full Units) regardless of what's typed into it, the same way one offer alone IS its whole
-available volume in the Matrix tool. For a multi-row section, once every row but one has a clean
-value, the single remaining row is auto-filled with whatever's left of that section's 100%. A
-"Remaining % by section" readout right below the grid shows each section's running total and
-what's left, recomputed fresh (no lag) on every edit. Both the remainder fill and the readout are
+others neither; nothing is ever forced onto a row that was typed in explicitly, including a
+section with only one row -- its % is whatever was typed, not assumed to be 100%. Once every row
+but one in a section has a clean value, the single remaining (genuinely blank) row is auto-filled
+with whatever's left of that section's 100% -- this naturally comes out to 100% for a one-row
+section left blank, without forcing it. If the entries already on the OTHER rows in a section add
+up to over 100% on their own, nothing is auto-filled into the remaining row (there's no real
+remainder left to mean anything) and the section is flagged as a validation error (st.error,
+"percentage out of range") -- not silently accepted. A "Remaining % by section" readout right
+below the grid shows each section's running total and what's left (or how far over 100% it is),
+recomputed fresh (no lag) on every edit. Both the remainder fill and the over-allocation check are
 skipped for a section containing free text (e.g. a cutoff-tiered note like "100% (605-645) & 25%
 BAU volume (646+)"), since the true remaining total can't be known for sure then. A single row
 needing two different percentages for two score sub-bands (as in that same example) stays free
@@ -257,18 +261,6 @@ def render(session):
             elif units is not None and pct is None:
                 final_pct.loc[i] = ui.format_percent(units / volume * 100)
 
-    # A section with exactly one row IS that section -- it always represents 100% of that
-    # section's volume, whatever % (if anything) was typed into it. Overrides any typed value,
-    # same as the Matrix tool's own single-offer sections always being the whole available volume.
-    for key in section_keys:
-        idx = section_rows[key]
-        if len(idx) == 1:
-            i = idx[0]
-            volume = ui.num(resolved_volume.loc[i])
-            if volume:
-                final_pct.loc[i] = ui.format_percent(100)
-                final_units.loc[i] = ui.format_volume(volume)
-
     # Section-level allocation: how much % is accounted for so far in each section (never allowed
     # to exceed 100% of that section's volume), and (when exactly one row is still blank) auto-
     # fill that one row with whatever's left of 100% -- its Units follow from that. The auto-fill
@@ -312,8 +304,10 @@ def render(session):
     # Live readout (not a second table -- a short line per section): how much % (and volume) is
     # allocated so far and what's left, computed fresh from this run's edits (no rerun lag, unlike
     # the grid's own Status column). Over-allocated sections (adding up to more than 100%) are
-    # called out explicitly instead of just showing a quietly negative "remaining" number.
+    # called out explicitly instead of just showing a quietly negative "remaining" number, AND
+    # raised as a real validation error (st.error), not just a line in the summary below.
     remaining_lines = []
+    over_allocated_errors = []
     for key in section_keys:
         clean_total, skip, over_allocated, volume = section_allocation[key]
         if skip:
@@ -322,6 +316,10 @@ def render(session):
             over_units = ui.format_volume(volume * (clean_total - 100) / 100) if volume else "?"
             remaining_lines.append(f"- ⚠️ {section_label(key)}: {clean_total:g}% allocated -- "
                                     f"OVER 100% by {clean_total - 100:g}% ({over_units} too many units).")
+            over_allocated_errors.append(
+                f"**{section_label(key)}**: percentage out of range -- entries add up to "
+                f"{clean_total:g}%, which is {clean_total - 100:g}% over 100% ({over_units} too "
+                "many units for this section's Total Available Volume). Reduce one or more entries.")
         elif volume:
             allocated_units = ui.format_volume(volume * clean_total / 100)
             remaining_units = ui.format_volume(volume * (100 - clean_total) / 100)
@@ -332,6 +330,8 @@ def render(session):
             remaining_lines.append(f"- {section_label(key)}: {clean_total:g}% allocated, "
                                     f"{100 - clean_total:g}% remaining (set a Total Available "
                                     "Volume above to see units).")
+    if over_allocated_errors:
+        st.error("\n\n".join(over_allocated_errors))
     st.markdown("**Remaining % by section:**\n\n" + "\n".join(remaining_lines))
 
     # Read-only colored preview: the one thing an editable st.data_editor categorically cannot do,
