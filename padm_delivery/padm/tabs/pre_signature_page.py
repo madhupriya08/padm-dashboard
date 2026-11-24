@@ -11,12 +11,15 @@ duplication/conflicts); the main offer grid shows that section's resolved volume
 Quantity % and Quantity (Units) are linked: enter either one (a clean number/percentage, not a
 combined free-text note) and the other is calculated from the section's Total Available Volume.
 
-Two tables below the editors: a plain editable grid, and a read-only colored preview. Streamlit
-cannot show live cell colors on an editable grid itself (the same limitation Segment Viewer hit)
--- the preview mirrors Segment Viewer's own proven styling pattern (a same-shape DataFrame of CSS
-strings applied with Styler.apply(..., axis=None)). Non-tracking (Matrix) columns are colored by
-Matrix segment section; the 4 tracking columns instead show save state -- green once a value is
-saved, red while it's typed but not yet saved (flips to green on the next run after Save)."""
+One single editable grid for the offers (no separate preview table). Streamlit's st.data_editor
+cannot show per-cell background colors while editable -- there is no supported way around that --
+so "color coding" here is a leading Status column inside the SAME grid: a green/red circle per row,
+green once every tracking value you've entered matches what's saved, red if anything differs. It
+updates one rerun behind your very latest keystroke (the status shown reflects the edit before the
+one just made, carried across reruns via session_state) -- the same kind of reactive lag every
+other derived value on this page already has (e.g. the %/Units auto-fill), not something special to
+this column. Segment identification is conveyed by the Segment column's text, not a background
+color, for the same reason."""
 
 import pandas as pd
 import streamlit as st
@@ -31,8 +34,9 @@ NEW_LABELS = {
     "QUANTITY_UNITS": "Quantity (Units)",
     "OWNER_APPROVER": "Owner/Approver",
 }
-RED_UNSAVED = "background-color: #fca5a5"
-GREEN_SAVED = "background-color: #86efac"
+STATUS_COL = "Status"
+STATUS_SAVED = "\U0001F7E2"     # green circle
+STATUS_UNSAVED = "\U0001F534"   # red circle
 
 
 def _text(value):
@@ -134,7 +138,17 @@ def render(session):
     section_volume = {k: ui.parse_volume(section_edited.loc[k, vol_label]) for k in section_keys}
     resolved_volume = rows["_SECTION"].map(section_volume)
 
+    # Status column: a leading per-row 🟢/🔴 indicator baked into the same editable grid, seeded
+    # from the save-state this page computed on the PREVIOUS rerun (stored in session_state just
+    # below) -- one rerun behind the very latest keystroke, same as the %/Units auto-fill already
+    # is on this page, since a value computed from this grid's own edits can't be redrawn into it
+    # within that same run.
+    status_key = f"psp_status_{campaign['id']}"
+    status_state = st.session_state.get(status_key, {})
+    offer_ids = [str(rows.loc[i, "CAMPAIGN_OFFER_ID"]) for i in rows.index]
+
     frame = pd.DataFrame(index=rows.index)
+    frame[STATUS_COL] = [status_state.get(oid, "") for oid in offer_ids]
     for source, label in ui.MATRIX_COLUMNS:
         frame[label] = rows[source] if source in rows.columns else None
     frame[vol_label] = resolved_volume.map(ui.format_volume)
@@ -150,10 +164,14 @@ def render(session):
     pct_label, units_label = NEW_LABELS["QUANTITY_PERCENTAGE"], NEW_LABELS["QUANTITY_UNITS"]
     owner_label = NEW_LABELS["OWNER_APPROVER"]
     editable_cols = {pct_label, units_label, owner_label}
+    st.caption(f"{STATUS_SAVED} = every entered value here matches what's saved. {STATUS_UNSAVED} = "
+               "something here hasn't been saved yet. Updates shortly after you act (e.g. edit another "
+               "cell), not on the very keystroke that changed it.")
     edited = st.data_editor(
         frame, hide_index=True, use_container_width=True,
         disabled=[c for c in frame.columns if c not in editable_cols],
         column_config={
+            STATUS_COL: st.column_config.TextColumn(STATUS_COL, width="small"),
             vol_label: st.column_config.TextColumn(vol_label, help="Set above, one per section."),
             pct_label: st.column_config.TextColumn(pct_label),
             units_label: st.column_config.TextColumn(units_label),
@@ -176,16 +194,7 @@ def render(session):
             elif units is not None and pct is None:
                 final_pct.loc[i] = ui.format_percent(units / volume * 100)
 
-    # Read-only colored preview, built the same way Segment Viewer's own (confirmed-working)
-    # colored grid is: a same-shape DataFrame of CSS strings applied via Styler.apply(fn, axis=None).
-    # Base color = the row's Matrix segment section; red overrides it on any of the 4 tracking
-    # cells whose current value differs from what's actually saved.
-    preview = frame.copy()
-    preview[vol_label] = resolved_volume.map(ui.format_volume)
-    preview[pct_label] = final_pct
-    preview[units_label] = final_units
-    preview[owner_label] = edited[owner_label]
-
+    # Recompute save state from this run's edits, for the Status column on the NEXT rerun.
     def changed(current, saved_values, parser=None):
         flags = []
         for i in rows.index:
@@ -198,8 +207,6 @@ def render(session):
             flags.append(_text(cur) != _text(base))
         return pd.Series(flags, index=rows.index)
 
-    # Tracking columns: current value + the parser that tells a "real value" from blank, used both
-    # for the unsaved-diff check and for deciding whether a saved cell is non-empty (-> green).
     tracking = {
         vol_label: (resolved_volume.map(ui.format_volume), saved["TOTAL_AVAILABLE_VOLUME"], ui.num),
         pct_label: (final_pct, saved["QUANTITY_PERCENTAGE"], ui.parse_percent),
@@ -208,29 +215,22 @@ def render(session):
     }
     unsaved = {label: changed(current, base, parser) for label, (current, base, parser) in tracking.items()}
 
-    highlight = pd.DataFrame("", index=preview.index, columns=preview.columns)
-    for i in rows.index:
-        base_hex = rows.loc[i, "_SECTION"]
-        if base_hex != "none":
-            highlight.loc[i, :] = f"background-color: {base_hex}"
-    # Tracking columns show save state instead of section color: red = typed here but not saved
-    # yet, green = saved (matches the database) and not blank. Saving flips red -> green because
-    # the rerun after a save re-reads `saved` from the database, so nothing is "unsaved" any more.
-    for label, (current, _base, parser) in tracking.items():
-        for i in rows.index:
-            if unsaved[label].loc[i]:
-                highlight.loc[i, label] = RED_UNSAVED
-            else:
-                value = current.loc[i]
-                present = (parser(value) is not None) if parser is not None else (_text(value) != "")
-                if present:
-                    highlight.loc[i, label] = GREEN_SAVED
+    def row_has_value(i):
+        for label, (current, _base, parser) in tracking.items():
+            value = current.loc[i]
+            if (parser(value) is not None) if parser is not None else (_text(value) != ""):
+                return True
+        return False
 
-    st.caption("Preview (read-only) -- non-tracking columns colored by Matrix segment section. "
-               "Tracking columns (Volume / Quantity % / Quantity Units / Owner-Approver): green = "
-               "saved, red = entered here but not yet saved.")
-    st.dataframe(preview.style.apply(lambda _: highlight, axis=None),
-                 hide_index=True, use_container_width=True, key=f"psp_preview_{campaign['id']}")
+    new_status_state = {}
+    for i in rows.index:
+        if any(unsaved[label].loc[i] for label in tracking):
+            new_status_state[offer_ids[i]] = STATUS_UNSAVED
+        elif row_has_value(i):
+            new_status_state[offer_ids[i]] = STATUS_SAVED
+        else:
+            new_status_state[offer_ids[i]] = ""
+    st.session_state[status_key] = new_status_state
 
     if st.button("Save tracking fields", type="primary", icon=":material/save:",
                   disabled=locked, key=f"psp_save_{campaign['id']}"):
