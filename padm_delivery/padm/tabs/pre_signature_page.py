@@ -180,6 +180,16 @@ def render(session):
     calc_key = f"psp_calc_{campaign['id']}"
     calc_state = st.session_state.get(calc_key, {})
 
+    # What the %/Units cells actually held last time this ran -- used below to detect which one
+    # you just edited. This can't be done by comparing against `frame` (what we're ABOUT to
+    # display): st.data_editor keeps re-asserting whatever you last typed into a given cell on
+    # every rerun, regardless of what new `data` is passed in, so once you've typed into BOTH %
+    # and Units at different times, both would permanently look "changed" against any recalculated
+    # frame we try to show, and neither would ever recalculate again. Comparing against the
+    # widget's own previous output instead is immune to that.
+    prev_key = f"psp_prev_values_{campaign['id']}"
+    prev_values = st.session_state.get(prev_key, {})
+
     def initial_status(i):
         """Status for a row session_state has no computed value for yet -- i.e. before the first
         edit this session. Falls back to what's actually saved (not blank), so a campaign loaded
@@ -247,20 +257,26 @@ def render(session):
     # Quantity % and Quantity (Units) are linked through the section's resolved volume. Whichever
     # cell you just changed THIS edit wins and recalculates the other -- not just "whichever side
     # is blank": a row can already have both filled in (from a previous save), and editing either
-    # one must still update its counterpart, not leave the other one stale. "Changed" is detected
-    # by comparing against what the grid displayed before this edit (`frame`, built from what's
-    # saved/previously computed). If neither or both changed at once (first load, or a paste that
-    # touched both cells together), falls back to "whichever side is blank" as before. Free-text/
-    # combined entries (not a single clean number) are left exactly as typed on both sides -- no
-    # calculation applied. Any clean value is also re-displayed in its canonical format (a typed
+    # one must still update its counterpart, not leave the other one stale. "Changed" ONLY means
+    # "different from what the widget itself returned on the previous run" (prev_values, updated
+    # at the bottom of this function) -- not "different from frame", which would be unreliable
+    # (see prev_key's comment above). If neither or both changed at once (first load, or a paste
+    # that touched both cells together), falls back to "whichever side is blank" as before. Free-
+    # text/combined entries (not a single clean number) are left exactly as typed on both sides --
+    # no calculation applied. Any clean value is also re-displayed in its canonical format (a typed
     # "80" becomes "80%").
     final_pct, final_units = edited[pct_label].copy(), edited[units_label].copy()
+    new_prev_values = {}
     for i in rows.index:
+        oid = offer_ids[i]
         volume = ui.num(resolved_volume.loc[i])
-        pct = ui.parse_percent(edited.loc[i, pct_label])
-        units = ui.parse_volume(edited.loc[i, units_label])
-        pct_changed = _text(edited.loc[i, pct_label]) != _text(frame.loc[i, pct_label])
-        units_changed = _text(edited.loc[i, units_label]) != _text(frame.loc[i, units_label])
+        pct_text, units_text = _text(edited.loc[i, pct_label]), _text(edited.loc[i, units_label])
+        pct = ui.parse_percent(pct_text)
+        units = ui.parse_volume(units_text)
+        prev = prev_values.get(oid, {})
+        pct_changed = pct_text != prev.get("pct", _text(frame.loc[i, pct_label]))
+        units_changed = units_text != prev.get("units", _text(frame.loc[i, units_label]))
+        new_prev_values[oid] = {"pct": pct_text, "units": units_text}
         if pct is not None:
             final_pct.loc[i] = ui.format_percent(pct)
         if units is not None:
@@ -377,6 +393,8 @@ def render(session):
     st.session_state[calc_key] = {
         offer_ids[i]: {"pct": final_pct.loc[i], "units": final_units.loc[i]} for i in rows.index
     }
+    # Persist what the widget itself held this run, for next run's changed-cell detection.
+    st.session_state[prev_key] = new_prev_values
 
     # Recompute save state from this run's edits, for the Status column on the NEXT rerun.
     def changed(current, saved_values, parser=None):
