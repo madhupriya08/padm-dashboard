@@ -8,29 +8,37 @@ merged-cell layout. Since st.data_editor can't merge cells, it gets its own smal
 exactly one row per section (so there is exactly one place to enter it, no per-offer-row
 duplication/conflicts); the main offer grid shows that section's resolved volume read-only.
 
-Offers are shown in ONE table, colored by Matrix segment (whole row, real hex colors, everything
-except the 4 tracking columns on the right) -- the tradeoff for that is this table is read-only.
-Streamlit's st.data_editor cannot show per-cell or per-row background colors while editable, for
-any column combination -- there is no supported way around that, so a colored table and an inline-
-editable table are mutually exclusive in Streamlit. Editing therefore happens by selecting a row
-(st.dataframe's on_select, same pattern used elsewhere in this app, e.g. the campaign list) and
-filling in a small form below the table with just that row's Quantity %, Quantity (Units) and
-Owner/Approver, then saving that one row. The colored table itself is built the same proven way
-Segment Viewer's own colored grid is: a same-shape DataFrame of CSS strings applied via
-Styler.apply(fn, axis=None).
-
 Quantity % and Quantity (Units) are linked: enter either one (a clean number/percentage, not a
-combined free-text note) in the form and the other is calculated from the section's Total
-Available Volume before saving. A clean value on either side is also re-displayed in its canonical
-format (a typed "80" becomes "80%"). A section with exactly one row always represents 100% of that
-section (and the full Units) regardless of what's typed into it, the same way one offer alone IS
-its whole available volume in the Matrix tool. A "Remaining % by section" readout above the table
-shows each section's % allocated and what's left, computed from what's currently saved. Skipped
-for a section containing free text (e.g. a cutoff-tiered note like "100% (605-645) & 25% BAU
-volume (646+)"), since the true remaining total can't be known for sure then -- that same kind of
-row (needing two different percentages for two score sub-bands) stays free text, typed exactly as
-the source shows it: PADM has no data source giving the population split between those sub-bands,
-so that specific split isn't calculated, only flagged."""
+combined free-text note) and the other is calculated and shown back in that row's other cell
+(seeded from session_state -- see calc_key below -- so it's visible the next time the grid
+redraws, not only after a Save reloads it from the database). A clean value on either side is also
+re-displayed in its canonical format (a typed "80" becomes "80%"), not just the side that got
+calculated. It's row-by-row, not all-or-nothing -- some rows in a section can use %, others Units,
+others neither. A section with exactly one row always represents 100% of that section (and the
+full Units) regardless of what's typed into it, the same way one offer alone IS its whole
+available volume in the Matrix tool. For a multi-row section, once every row but one has a clean
+value, the single remaining row is auto-filled with whatever's left of that section's 100%. A
+"Remaining % by section" readout right below the grid shows each section's running total and
+what's left, recomputed fresh (no lag) on every edit. Both the remainder fill and the readout are
+skipped for a section containing free text (e.g. a cutoff-tiered note like "100% (605-645) & 25%
+BAU volume (646+)"), since the true remaining total can't be known for sure then. A single row
+needing two different percentages for two score sub-bands (as in that same example) stays free
+text, typed exactly as the source shows it -- PADM has no data source giving the population split
+between those sub-bands, so that specific split isn't calculated, only flagged.
+
+Two tables for the offers: a plain editable grid, and a read-only colored preview below it.
+Streamlit's st.data_editor cannot show per-cell (or per-row) background colors while editable --
+there is no supported way around that, for a single cell or a whole row alike -- so:
+- The editable grid carries a leading Status column instead: a green/red circle per row, green
+  once every tracking value you've entered matches what's saved, red if anything differs. It
+  updates one rerun behind your very latest keystroke (the status shown reflects the edit before
+  the one just made, carried across reruns via session_state) -- the same kind of reactive lag
+  every other derived value on this page already has. The Segment column also carries an emoji
+  square approximating that row's real Matrix color (see ui.segment_color_emoji()).
+- The read-only preview mirrors Segment Viewer's own proven styling pattern (a same-shape
+  DataFrame of CSS strings applied with Styler.apply(..., axis=None)) to color the WHOLE row by
+  its real Matrix segment hex color -- everything except the 4 tracking columns on the right,
+  which are left plain."""
 
 import pandas as pd
 import streamlit as st
@@ -45,6 +53,11 @@ NEW_LABELS = {
     "QUANTITY_UNITS": "Quantity (Units)",
     "OWNER_APPROVER": "Owner/Approver",
 }
+STATUS_COL = "Status"
+STATUS_SAVED = "\U0001F7E2"     # green circle
+STATUS_UNSAVED = "\U0001F534"   # red circle
+
+
 def _text(value):
     """None/NaN -> "" ; everything else -> a plain stripped string. Keeps a column's pandas dtype
     as plain text (object) from the start, so Streamlit can't infer a numeric column type for it
@@ -144,134 +157,245 @@ def render(session):
     section_volume = {k: ui.parse_volume(section_edited.loc[k, vol_label]) for k in section_keys}
     resolved_volume = rows["_SECTION"].map(section_volume)
 
+    # Status column: a leading per-row 🟢/🔴 indicator baked into the same editable grid, seeded
+    # from the save-state this page computed on the PREVIOUS rerun (stored in session_state just
+    # below) -- one rerun behind the very latest keystroke, same as the %/Units auto-fill already
+    # is on this page, since a value computed from this grid's own edits can't be redrawn into it
+    # within that same run.
+    status_key = f"psp_status_{campaign['id']}"
+    status_state = st.session_state.get(status_key, {})
+    offer_ids = [str(rows.loc[i, "CAMPAIGN_OFFER_ID"]) for i in rows.index]
+
+    # Quantity %/Units auto-fill (computed after the grid below renders, same as Status) is seeded
+    # back in here from session_state -- otherwise the cell you DIDN'T type into would only ever
+    # show the calculated value after you hit Save (reload from the database), not as you work.
+    calc_key = f"psp_calc_{campaign['id']}"
+    calc_state = st.session_state.get(calc_key, {})
+
+    def initial_status(i):
+        """Status for a row session_state has no computed value for yet -- i.e. before the first
+        edit this session. Falls back to what's actually saved (not blank), so a campaign loaded
+        with existing data shows 🟢 immediately instead of waiting for an edit to happen first."""
+        for col, parser in (("TOTAL_AVAILABLE_VOLUME", ui.num), ("QUANTITY_PERCENTAGE", ui.parse_percent),
+                            ("QUANTITY_UNITS", ui.parse_volume), ("OWNER_APPROVER", None)):
+            value = saved.loc[i, col]
+            present = (parser(value) is not None) if parser is not None else (_text(value) != "")
+            if present:
+                return STATUS_SAVED
+        return ""
+
     # Total Available Volume is entered once per section (above) and is read-only here -- show it
     # on only the first row of each section (like the Matrix tool's merged cell), blank on the
     # rest of the section, instead of repeating the same number on every row.
     first_row_of_section = {key: section_rows[key][0] for key in section_keys}
-    pct_label, units_label = NEW_LABELS["QUANTITY_PERCENTAGE"], NEW_LABELS["QUANTITY_UNITS"]
-    owner_label = NEW_LABELS["OWNER_APPROVER"]
-
-    def row_display(i):
-        pct = _display_text(saved.loc[i, "QUANTITY_PERCENTAGE"], ui.parse_percent, ui.format_percent)
-        units = _display_text(saved.loc[i, "QUANTITY_UNITS"], ui.parse_volume, ui.format_volume)
-        owner = _text(saved.loc[i, "OWNER_APPROVER"])
-        return pct, units, owner
 
     frame = pd.DataFrame(index=rows.index)
+    frame[STATUS_COL] = [status_state.get(oid, initial_status(i)) for i, oid in zip(rows.index, offer_ids)]
     for source, label in ui.MATRIX_COLUMNS:
         frame[label] = rows[source] if source in rows.columns else None
+    # Matrix segment color, approximated as an emoji square (editable grids can't show real cell
+    # background colors) -- prefixed onto the Segment column's own text.
+    if "Segment" in frame.columns:
+        def _segment_cell(s, d):
+            emoji = ui.segment_color_emoji(s, d)
+            return (f"{emoji} " if emoji else "") + _text(s)
+        frame["Segment"] = [_segment_cell(s, d) for s, d in
+                             zip(rows.get("ACM_SEGMENT", ""), rows.get("SEGMENT_DESCRIPTION", ""))]
     frame[vol_label] = [ui.format_volume(resolved_volume.loc[i])
                          if i == first_row_of_section[rows.loc[i, "_SECTION"]] else ""
                          for i in rows.index]
-    display_rows = [row_display(i) for i in rows.index]
-    frame[pct_label] = [d[0] for d in display_rows]
-    frame[units_label] = [d[1] for d in display_rows]
-    frame[owner_label] = [d[2] for d in display_rows]
+    frame[NEW_LABELS["QUANTITY_PERCENTAGE"]] = [
+        calc_state.get(oid, {}).get("pct", _display_text(saved.loc[i, "QUANTITY_PERCENTAGE"],
+                                                           ui.parse_percent, ui.format_percent))
+        for i, oid in zip(rows.index, offer_ids)]
+    frame[NEW_LABELS["QUANTITY_UNITS"]] = [
+        calc_state.get(oid, {}).get("units", _display_text(saved.loc[i, "QUANTITY_UNITS"],
+                                                             ui.parse_volume, ui.format_volume))
+        for i, oid in zip(rows.index, offer_ids)]
+    frame[NEW_LABELS["OWNER_APPROVER"]] = saved["OWNER_APPROVER"].map(_text)
 
-    # Section-level allocation (from what's actually saved): how much % is accounted for in each
-    # section, and what's left of its 100%. Skipped for a section containing free text (e.g. a
-    # cutoff-tiered note like "100% (605-645) & 25% BAU volume (646+)"), since the true remaining
-    # % can't be known for sure then.
-    remaining_lines = []
+    st.subheader("Offers")
+    locked = campaign["locked"]
+    reason = ui.reason_input(f"psp_reason_{campaign['id']}", disabled=locked)
+    pct_label, units_label = NEW_LABELS["QUANTITY_PERCENTAGE"], NEW_LABELS["QUANTITY_UNITS"]
+    owner_label = NEW_LABELS["OWNER_APPROVER"]
+    editable_cols = {pct_label, units_label, owner_label}
+    st.caption(f"{STATUS_SAVED} = every entered value here matches what's saved. {STATUS_UNSAVED} = "
+               "something here hasn't been saved yet. Updates shortly after you act (e.g. edit another "
+               "cell), not on the very keystroke that changed it.")
+    edited = st.data_editor(
+        frame, hide_index=True, use_container_width=True,
+        disabled=[c for c in frame.columns if c not in editable_cols],
+        column_config={
+            STATUS_COL: st.column_config.TextColumn(STATUS_COL, width="small"),
+            vol_label: st.column_config.TextColumn(vol_label, help="Set above, one per section."),
+            pct_label: st.column_config.TextColumn(pct_label),
+            units_label: st.column_config.TextColumn(units_label),
+            owner_label: st.column_config.TextColumn(owner_label),
+        },
+        key=f"psp_editor_{campaign['id']}",
+    )
+
+    # Quantity % and Quantity (Units) are linked through the section's resolved volume: whichever
+    # one is a clean number, the other is calculated from it. Free-text/combined entries (not a
+    # single clean number) are left exactly as typed on both sides -- no calculation applied. Any
+    # clean value on EITHER side is also re-displayed in its canonical format (e.g. a typed "80"
+    # becomes "80%"), not just the side that got calculated -- previously only the calculated side
+    # was reformatted, so a directly-typed percentage could display with no "%" at all.
+    final_pct, final_units = edited[pct_label].copy(), edited[units_label].copy()
+    for i in rows.index:
+        volume = ui.num(resolved_volume.loc[i])
+        pct = ui.parse_percent(edited.loc[i, pct_label])
+        units = ui.parse_volume(edited.loc[i, units_label])
+        if pct is not None:
+            final_pct.loc[i] = ui.format_percent(pct)
+        if units is not None:
+            final_units.loc[i] = ui.format_volume(units)
+        if volume:
+            if pct is not None and units is None:
+                final_units.loc[i] = ui.format_volume(volume * pct / 100)
+            elif units is not None and pct is None:
+                final_pct.loc[i] = ui.format_percent(units / volume * 100)
+
+    # A section with exactly one row IS that section -- it always represents 100% of that
+    # section's volume, whatever % (if anything) was typed into it. Overrides any typed value,
+    # same as the Matrix tool's own single-offer sections always being the whole available volume.
     for key in section_keys:
         idx = section_rows[key]
-        clean_total, skip, any_value = 0.0, False, False
+        if len(idx) == 1:
+            i = idx[0]
+            volume = ui.num(resolved_volume.loc[i])
+            if volume:
+                final_pct.loc[i] = ui.format_percent(100)
+                final_units.loc[i] = ui.format_volume(volume)
+
+    # Section-level allocation: how much % is accounted for so far in each section, and (when
+    # exactly one row is still blank) auto-fill that one row with whatever's left of 100% -- its
+    # Units follow from that. Skipped (both the remainder fill and a trustworthy running total)
+    # when any other row in the section is free text (e.g. a cutoff-tiered note like "100%
+    # (605-645) & 25% BAU volume (646+)"), since the true remaining % can't be known for sure then.
+    section_allocation = {}
+    for key in section_keys:
+        idx = section_rows[key]
+        blanks, clean_total, skip = [], 0.0, False
         for i in idx:
-            raw_pct, raw_units = frame.loc[i, pct_label], frame.loc[i, units_label]
+            raw_pct, raw_units = _text(final_pct.loc[i]), _text(final_units.loc[i])
             if raw_pct == "" and raw_units == "":
+                blanks.append(i)
                 continue
-            any_value = True
-            pct = ui.parse_percent(raw_pct)
-            units = ui.parse_volume(raw_units)
+            pct = ui.parse_percent(final_pct.loc[i])
+            units = ui.parse_volume(final_units.loc[i])
             volume = ui.num(resolved_volume.loc[i])
             if pct is not None:
                 clean_total += pct
             elif units is not None and volume:
                 clean_total += units / volume * 100
             else:
-                skip = True
-        if not any_value:
+                skip = True  # free text, or Units with no section volume to convert against
+        section_allocation[key] = (clean_total, skip)
+        if skip or len(blanks) != 1:
             continue
+        i = blanks[0]
+        volume = ui.num(resolved_volume.loc[i])
+        if not volume:
+            continue
+        remainder = 100 - clean_total
+        final_pct.loc[i] = ui.format_percent(remainder)
+        final_units.loc[i] = ui.format_volume(volume * remainder / 100)
+
+    # Live readout (not a second table -- a short line per section): how much % is allocated so
+    # far and what's left, computed fresh from this run's edits (no rerun lag, unlike the grid's
+    # own Status column).
+    remaining_lines = []
+    for key in section_keys:
+        clean_total, skip = section_allocation[key]
         if skip:
             remaining_lines.append(f"- {section_label(key)}: can't total (contains free-text entries).")
         else:
             remaining_lines.append(f"- {section_label(key)}: {clean_total:g}% allocated, "
                                     f"{100 - clean_total:g}% remaining.")
-    if remaining_lines:
-        st.markdown("**Remaining % by section (as currently saved):**\n\n" + "\n".join(remaining_lines))
+    st.markdown("**Remaining % by section:**\n\n" + "\n".join(remaining_lines))
 
-    # The one colored table: read-only (st.dataframe can show real cell/row colors; an editable
-    # st.data_editor categorically cannot, for a single cell or a whole row alike -- there is no
-    # supported way around that). Styled the same proven way Segment Viewer's own colored grid is:
+    # Read-only colored preview: the one thing an editable st.data_editor categorically cannot do,
+    # no matter which columns are involved, is paint a cell's background -- that's true for a
+    # single cell and for a whole row alike. Real per-row color therefore has to live in a second,
+    # read-only table, built the same way Segment Viewer's own (confirmed-working) colored grid is:
     # a same-shape DataFrame of CSS strings applied via Styler.apply(fn, axis=None). Every column
-    # gets the row's real Matrix segment hex color EXCEPT the 4 tracking columns on the right
-    # (Volume/Quantity %/Quantity Units/Owner-Approver), left plain, as asked. Editing happens by
-    # selecting a row below, not inline in this table.
+    # gets the row's segment color EXCEPT the 4 tracking columns (Volume/Quantity %/Quantity
+    # Units/Owner-Approver), left plain, as asked.
+    preview = frame.copy()
+    preview[pct_label] = final_pct
+    preview[units_label] = final_units
+    preview[owner_label] = edited[owner_label]
     uncolored = {vol_label, pct_label, units_label, owner_label}
-    highlight = pd.DataFrame("", index=frame.index, columns=frame.columns)
+    highlight = pd.DataFrame("", index=preview.index, columns=preview.columns)
     for i in rows.index:
         base_hex = rows.loc[i, "_SECTION"]
         if base_hex != "none":
-            for col in frame.columns:
+            for col in preview.columns:
                 if col not in uncolored:
                     highlight.loc[i, col] = f"background-color: {base_hex}"
+    st.caption("Preview (read-only) -- whole row colored by Matrix segment, except the 4 tracking "
+               "columns on the right.")
+    st.dataframe(preview.style.apply(lambda _: highlight, axis=None),
+                 hide_index=True, use_container_width=True, key=f"psp_preview_{campaign['id']}")
 
-    st.subheader("Offers")
-    st.caption("Whole row colored by Matrix segment, except the 4 tracking columns on the right. "
-               "Click a row to edit its Quantity % / Quantity (Units) / Owner-Approver below.")
-    event = st.dataframe(
-        frame.style.apply(lambda _: highlight, axis=None),
-        hide_index=True, use_container_width=True, on_select="rerun",
-        selection_mode="single-row", key=f"psp_offers_{campaign['id']}",
-    )
-    selected = event.selection.rows if event and event.selection else []
-    if not selected:
-        st.info("Select a row above to edit its tracking fields.")
-        return
-    i = selected[0]
-    offer_id = rows.loc[i, "CAMPAIGN_OFFER_ID"]
-    volume = ui.num(resolved_volume.loc[i])
-    current_pct, current_units, current_owner = row_display(i)
-    label = frame.loc[i, "Segment"] if "Segment" in frame.columns else str(offer_id)
-    code = rows.loc[i, "OFFER_RESERVATION_CODE"] if "OFFER_RESERVATION_CODE" in rows.columns else None
+    # Persist this run's calculated %/Units so the NEXT rerun's grid shows them (see calc_state
+    # above) instead of only updating after a Save reloads from the database.
+    st.session_state[calc_key] = {
+        offer_ids[i]: {"pct": final_pct.loc[i], "units": final_units.loc[i]} for i in rows.index
+    }
 
-    st.markdown(f"**Editing:** {label}" + (f" · {code}" if pd.notna(code) else ""))
-    c1, c2, c3 = st.columns(3)
-    pct_input = c1.text_input(pct_label, value=current_pct, disabled=locked,
-                               key=f"psp_edit_pct_{campaign['id']}_{offer_id}")
-    units_input = c2.text_input(units_label, value=current_units, disabled=locked,
-                                 key=f"psp_edit_units_{campaign['id']}_{offer_id}")
-    owner_input = c3.text_input(owner_label, value=current_owner, disabled=locked,
-                                 key=f"psp_edit_owner_{campaign['id']}_{offer_id}")
-    reason = ui.reason_input(f"psp_reason_{campaign['id']}_{offer_id}", disabled=locked)
+    # Recompute save state from this run's edits, for the Status column on the NEXT rerun.
+    def changed(current, saved_values, parser=None):
+        flags = []
+        for i in rows.index:
+            cur, base = current.loc[i], saved_values.loc[i]
+            if parser is not None:
+                cur_n, base_n = parser(cur), parser(base)
+                if cur_n is not None or base_n is not None:
+                    flags.append(cur_n != base_n)
+                    continue
+            flags.append(_text(cur) != _text(base))
+        return pd.Series(flags, index=rows.index)
 
-    if st.button("Save this row", type="primary", icon=":material/save:",
-                  disabled=locked, key=f"psp_save_{campaign['id']}_{offer_id}"):
+    tracking = {
+        vol_label: (resolved_volume.map(ui.format_volume), saved["TOTAL_AVAILABLE_VOLUME"], ui.num),
+        pct_label: (final_pct, saved["QUANTITY_PERCENTAGE"], ui.parse_percent),
+        units_label: (final_units, saved["QUANTITY_UNITS"], ui.parse_volume),
+        owner_label: (edited[owner_label], saved["OWNER_APPROVER"], None),
+    }
+    unsaved = {label: changed(current, base, parser) for label, (current, base, parser) in tracking.items()}
+
+    def row_has_value(i):
+        for label, (current, _base, parser) in tracking.items():
+            value = current.loc[i]
+            if (parser(value) is not None) if parser is not None else (_text(value) != ""):
+                return True
+        return False
+
+    new_status_state = {}
+    for i in rows.index:
+        if any(unsaved[label].loc[i] for label in tracking):
+            new_status_state[offer_ids[i]] = STATUS_UNSAVED
+        elif row_has_value(i):
+            new_status_state[offer_ids[i]] = STATUS_SAVED
+        else:
+            new_status_state[offer_ids[i]] = ""
+    st.session_state[status_key] = new_status_state
+
+    if st.button("Save tracking fields", type="primary", icon=":material/save:",
+                  disabled=locked, key=f"psp_save_{campaign['id']}"):
         if ui.require_reason(reason):
-            pct = ui.parse_percent(pct_input)
-            units = ui.parse_volume(units_input)
-            final_pct_val, final_units_val = pct_input, units_input
-            if pct is not None:
-                final_pct_val = ui.format_percent(pct)
-            if units is not None:
-                final_units_val = ui.format_volume(units)
-            if volume:
-                if pct is not None and units is None:
-                    final_units_val = ui.format_volume(volume * pct / 100)
-                elif units is not None and pct is None:
-                    final_pct_val = ui.format_percent(units / volume * 100)
-            # A section with exactly one row IS that section -- it always represents 100% of that
-            # section's volume, regardless of what's typed, the same way the Matrix tool treats a
-            # single-offer section as the whole available volume.
-            if volume and len(section_rows[rows.loc[i, "_SECTION"]]) == 1:
-                final_pct_val = ui.format_percent(100)
-                final_units_val = ui.format_volume(volume)
-            payload = [{
-                "CAMPAIGN_OFFER_ID": offer_id,
-                "TOTAL_AVAILABLE_VOLUME": volume,
-                "QUANTITY_PERCENTAGE": final_pct_val,
-                "QUANTITY_UNITS": final_units_val,
-                "OWNER_APPROVER": owner_input,
-            }]
+            payload = [
+                {
+                    "CAMPAIGN_OFFER_ID": rows.loc[i, "CAMPAIGN_OFFER_ID"],
+                    "TOTAL_AVAILABLE_VOLUME": ui.num(resolved_volume.loc[i]),
+                    "QUANTITY_PERCENTAGE": final_pct.loc[i],
+                    "QUANTITY_UNITS": final_units.loc[i],
+                    "OWNER_APPROVER": edited.loc[i, owner_label],
+                }
+                for i in rows.index
+            ]
             ui.run_action(SCOPE, lambda: repository.save_pre_signature_detail(
                 session, campaign["id"], payload, reason.strip()))
