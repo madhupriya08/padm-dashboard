@@ -269,11 +269,15 @@ def render(session):
                 final_pct.loc[i] = ui.format_percent(100)
                 final_units.loc[i] = ui.format_volume(volume)
 
-    # Section-level allocation: how much % is accounted for so far in each section, and (when
-    # exactly one row is still blank) auto-fill that one row with whatever's left of 100% -- its
-    # Units follow from that. Skipped (both the remainder fill and a trustworthy running total)
-    # when any other row in the section is free text (e.g. a cutoff-tiered note like "100%
-    # (605-645) & 25% BAU volume (646+)"), since the true remaining % can't be known for sure then.
+    # Section-level allocation: how much % is accounted for so far in each section (never allowed
+    # to exceed 100% of that section's volume), and (when exactly one row is still blank) auto-
+    # fill that one row with whatever's left of 100% -- its Units follow from that. The auto-fill
+    # is skipped, and the section flagged as over-allocated instead, once the OTHER rows alone
+    # already add up to more than 100% -- there would be nothing left for a remainder to mean.
+    # Skipped entirely (both the remainder fill and a trustworthy running total) when any other
+    # row in the section is free text (e.g. a cutoff-tiered note like "100% (605-645) & 25% BAU
+    # volume (646+)"), since the true remaining % can't be known for sure then.
+    OVER_ALLOCATED_TOLERANCE = 1e-6
     section_allocation = {}
     for key in section_keys:
         idx = section_rows[key]
@@ -292,8 +296,10 @@ def render(session):
                 clean_total += units / volume * 100
             else:
                 skip = True  # free text, or Units with no section volume to convert against
-        section_allocation[key] = (clean_total, skip)
-        if skip or len(blanks) != 1:
+        section_volume_total = ui.num(resolved_volume.loc[idx[0]]) if len(idx) else None
+        over_allocated = (not skip) and clean_total > 100 + OVER_ALLOCATED_TOLERANCE
+        section_allocation[key] = (clean_total, skip, over_allocated, section_volume_total)
+        if skip or over_allocated or len(blanks) != 1:
             continue
         i = blanks[0]
         volume = ui.num(resolved_volume.loc[i])
@@ -303,17 +309,29 @@ def render(session):
         final_pct.loc[i] = ui.format_percent(remainder)
         final_units.loc[i] = ui.format_volume(volume * remainder / 100)
 
-    # Live readout (not a second table -- a short line per section): how much % is allocated so
-    # far and what's left, computed fresh from this run's edits (no rerun lag, unlike the grid's
-    # own Status column).
+    # Live readout (not a second table -- a short line per section): how much % (and volume) is
+    # allocated so far and what's left, computed fresh from this run's edits (no rerun lag, unlike
+    # the grid's own Status column). Over-allocated sections (adding up to more than 100%) are
+    # called out explicitly instead of just showing a quietly negative "remaining" number.
     remaining_lines = []
     for key in section_keys:
-        clean_total, skip = section_allocation[key]
+        clean_total, skip, over_allocated, volume = section_allocation[key]
         if skip:
             remaining_lines.append(f"- {section_label(key)}: can't total (contains free-text entries).")
+        elif over_allocated:
+            over_units = ui.format_volume(volume * (clean_total - 100) / 100) if volume else "?"
+            remaining_lines.append(f"- ⚠️ {section_label(key)}: {clean_total:g}% allocated -- "
+                                    f"OVER 100% by {clean_total - 100:g}% ({over_units} too many units).")
+        elif volume:
+            allocated_units = ui.format_volume(volume * clean_total / 100)
+            remaining_units = ui.format_volume(volume * (100 - clean_total) / 100)
+            remaining_lines.append(f"- {section_label(key)}: {clean_total:g}% allocated "
+                                    f"({allocated_units} of {ui.format_volume(volume)}), "
+                                    f"{100 - clean_total:g}% remaining ({remaining_units}).")
         else:
             remaining_lines.append(f"- {section_label(key)}: {clean_total:g}% allocated, "
-                                    f"{100 - clean_total:g}% remaining.")
+                                    f"{100 - clean_total:g}% remaining (set a Total Available "
+                                    "Volume above to see units).")
     st.markdown("**Remaining % by section:**\n\n" + "\n".join(remaining_lines))
 
     # Read-only colored preview: the one thing an editable st.data_editor categorically cannot do,
