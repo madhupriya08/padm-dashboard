@@ -560,4 +560,4 @@ def render_signature_page(rows, key, mask_calculated=False, group_by_population=
         return [weight] * len(row)
 
     st.dataframe(frame.style.apply(bold, axis=1), hide_index=True, column_config=config, key=key,
-                 use_container_width=False)
+                 use_container_width=True)
