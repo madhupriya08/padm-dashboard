@@ -261,6 +261,7 @@ def render_grid(cells, title, value_col, fmt, caption, ratio=None, extra_row=Non
 # (source column on VW_PADM_SIGNATURE_PAGE_LIVE, Matrix tool's label)
 MATRIX_COLUMNS = [
     ("MAIL_DATE", "Mail Date"),
+    ("PROGRAM_CODE", "Program"),
     ("OFFER_RESERVATION_CODE", "Reservation Code"),
     ("IVR", "Offer Code IVR"),
     ("CREDIT_BUREAU_MODEL", "CB Model"),
