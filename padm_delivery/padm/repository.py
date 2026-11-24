@@ -340,7 +340,10 @@ def save_pre_signature_detail(session, campaign_id, rows, reason):
             """,
             [campaign_id, *offer_ids],
         )
-        value_rows = ", ".join(["(UUID_STRING(), ?, ?, ?, ?, ?, ?, TRUE, ?)"] * len(rows))
+        # UUID_STRING() is refused inside a VALUES(...) clause by Snowflake (a recurring issue in
+        # this codebase, fixed the same way at other call sites) -- a SELECT list is fine, so each
+        # row is its own SELECT, combined with UNION ALL into one INSERT.
+        select_rows = " UNION ALL ".join(["SELECT UUID_STRING(), ?, ?, ?, ?, ?, ?, TRUE, ?"] * len(rows))
         binds = []
         for r in rows:
             binds += [campaign_id, r["CAMPAIGN_OFFER_ID"], r["TOTAL_AVAILABLE_VOLUME"],
@@ -351,7 +354,7 @@ def save_pre_signature_detail(session, campaign_id, rows, reason):
             INSERT INTO {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL
                 (PRE_SIGNATURE_DETAIL_ID, CAMPAIGN_ID, CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME,
                  QUANTITY_PERCENTAGE, QUANTITY_UNITS, OWNER_APPROVER, IS_CURRENT, CHANGE_REASON)
-            VALUES {value_rows}
+            {select_rows}
             """,
             binds,
         )
