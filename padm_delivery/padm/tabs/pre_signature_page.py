@@ -11,17 +11,20 @@ duplication/conflicts); the main offer grid shows that section's resolved volume
 Quantity % and Quantity (Units) are linked: enter either one (a clean number/percentage, not a
 combined free-text note) and the other is calculated and shown back in that row's other cell
 (seeded from session_state -- see calc_key below -- so it's visible the next time the grid
-redraws, not only after a Save reloads it from the database). It's row-by-row, not all-or-nothing
--- some rows in a section can use %, others Units, others neither. Additionally, once every row
-but one in a section has a clean value, the single remaining row is auto-filled with whatever's
-left of that section's 100%. A "Remaining % by section" readout right below the grid shows each
-section's running total and what's left, recomputed fresh (no lag) on every edit. Both the
-remainder fill and the readout are skipped for a section containing free text (e.g. a
-cutoff-tiered note like "100% (605-645) & 25% BAU volume (646+)"), since the true remaining total
-can't be known for sure then. A single row needing two different percentages for two score
-sub-bands (as in that same example) stays free text, typed exactly as the source shows it -- PADM
-has no data source giving the population split between those sub-bands, so that specific split
-isn't calculated, only flagged.
+redraws, not only after a Save reloads it from the database). A clean value on either side is also
+re-displayed in its canonical format (a typed "80" becomes "80%"), not just the side that got
+calculated. It's row-by-row, not all-or-nothing -- some rows in a section can use %, others Units,
+others neither. A section with exactly one row always represents 100% of that section (and the
+full Units) regardless of what's typed into it, the same way one offer alone IS its whole
+available volume in the Matrix tool. For a multi-row section, once every row but one has a clean
+value, the single remaining row is auto-filled with whatever's left of that section's 100%. A
+"Remaining % by section" readout right below the grid shows each section's running total and
+what's left, recomputed fresh (no lag) on every edit. Both the remainder fill and the readout are
+skipped for a section containing free text (e.g. a cutoff-tiered note like "100% (605-645) & 25%
+BAU volume (646+)"), since the true remaining total can't be known for sure then. A single row
+needing two different percentages for two score sub-bands (as in that same example) stays free
+text, typed exactly as the source shows it -- PADM has no data source giving the population split
+between those sub-bands, so that specific split isn't calculated, only flagged.
 
 Two tables for the offers: a plain editable grid, and a read-only colored preview below it.
 Streamlit's st.data_editor cannot show per-cell (or per-row) background colors while editable --
@@ -235,17 +238,36 @@ def render(session):
 
     # Quantity % and Quantity (Units) are linked through the section's resolved volume: whichever
     # one is a clean number, the other is calculated from it. Free-text/combined entries (not a
-    # single clean number) are left exactly as typed on both sides -- no calculation applied.
+    # single clean number) are left exactly as typed on both sides -- no calculation applied. Any
+    # clean value on EITHER side is also re-displayed in its canonical format (e.g. a typed "80"
+    # becomes "80%"), not just the side that got calculated -- previously only the calculated side
+    # was reformatted, so a directly-typed percentage could display with no "%" at all.
     final_pct, final_units = edited[pct_label].copy(), edited[units_label].copy()
     for i in rows.index:
         volume = ui.num(resolved_volume.loc[i])
         pct = ui.parse_percent(edited.loc[i, pct_label])
         units = ui.parse_volume(edited.loc[i, units_label])
+        if pct is not None:
+            final_pct.loc[i] = ui.format_percent(pct)
+        if units is not None:
+            final_units.loc[i] = ui.format_volume(units)
         if volume:
             if pct is not None and units is None:
                 final_units.loc[i] = ui.format_volume(volume * pct / 100)
             elif units is not None and pct is None:
                 final_pct.loc[i] = ui.format_percent(units / volume * 100)
+
+    # A section with exactly one row IS that section -- it always represents 100% of that
+    # section's volume, whatever % (if anything) was typed into it. Overrides any typed value,
+    # same as the Matrix tool's own single-offer sections always being the whole available volume.
+    for key in section_keys:
+        idx = section_rows[key]
+        if len(idx) == 1:
+            i = idx[0]
+            volume = ui.num(resolved_volume.loc[i])
+            if volume:
+                final_pct.loc[i] = ui.format_percent(100)
+                final_units.loc[i] = ui.format_volume(volume)
 
     # Section-level allocation: how much % is accounted for so far in each section, and (when
     # exactly one row is still blank) auto-fill that one row with whatever's left of 100% -- its
@@ -257,12 +279,12 @@ def render(session):
         idx = section_rows[key]
         blanks, clean_total, skip = [], 0.0, False
         for i in idx:
-            raw_pct, raw_units = _text(edited.loc[i, pct_label]), _text(edited.loc[i, units_label])
+            raw_pct, raw_units = _text(final_pct.loc[i]), _text(final_units.loc[i])
             if raw_pct == "" and raw_units == "":
                 blanks.append(i)
                 continue
-            pct = ui.parse_percent(edited.loc[i, pct_label])
-            units = ui.parse_volume(edited.loc[i, units_label])
+            pct = ui.parse_percent(final_pct.loc[i])
+            units = ui.parse_volume(final_units.loc[i])
             volume = ui.num(resolved_volume.loc[i])
             if pct is not None:
                 clean_total += pct
