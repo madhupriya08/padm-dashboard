@@ -22,10 +22,9 @@ absorbs whatever's left, matching the sheet's own BALANCE row. Entries that alre
 section's volume are flagged as a validation error rather than accepted silently.
 
 Two tables: a plain editable grid, and a read-only colored preview below it. st.data_editor can't
-show per-cell or per-row background colors while editable, so the grid carries a Status column
-(green/red per row, lagging one rerun behind the latest edit) and an emoji square approximating
-each row's Matrix segment color; the preview colors the whole row with the real segment hex color,
-using the same Styler pattern as Segment Viewer."""
+show per-cell or per-row background colors while editable, so the grid carries an emoji square
+approximating each row's Matrix segment color instead; the preview colors the whole row with the
+real segment hex color, using the same Styler pattern as Segment Viewer."""
 
 from collections import Counter
 
@@ -42,10 +41,6 @@ NEW_LABELS = {
     "QUANTITY_UNITS": "Quantity (Units)",
     "OWNER_APPROVER": "Owner/Approver",
 }
-STATUS_COL = "Status"
-STATUS_SAVED = "\U0001F7E2"     # green circle
-STATUS_UNSAVED = "\U0001F534"   # red circle
-
 
 def _text(value):
     """None/NaN -> "" ; everything else -> a plain stripped string. Keeps the column's dtype as
@@ -159,10 +154,6 @@ def render(session):
     section_volume = {k: ui.parse_volume(section_edited.loc[k, vol_label]) for k in section_keys}
     resolved_volume = rows["_SECTION"].map(section_volume)
 
-    # Status column seeded from the save-state computed on the previous rerun -- a value computed
-    # from this grid's own edits can't be redrawn into it within the same run.
-    status_key = f"psp_status_{campaign['id']}"
-    status_state = st.session_state.get(status_key, {})
     offer_ids = [str(rows.loc[i, "CAMPAIGN_OFFER_ID"]) for i in rows.index]
 
     # Quantity %/Units auto-fill is seeded back in from session_state too, so the cell you didn't
@@ -179,18 +170,6 @@ def render(session):
     prev_key = f"psp_prev_values_{campaign['id']}"
     prev_values = st.session_state.get(prev_key, {})
 
-    def initial_status(i):
-        """Status for a row session_state has no computed value for yet (before the first edit
-        this session) -- falls back to what's actually saved, so existing data shows green
-        immediately instead of waiting for an edit."""
-        for col, parser in (("TOTAL_AVAILABLE_VOLUME", ui.num), ("QUANTITY_PERCENTAGE", ui.parse_percent),
-                            ("QUANTITY_UNITS", ui.parse_volume), ("OWNER_APPROVER", None)):
-            value = saved.loc[i, col]
-            present = (parser(value) is not None) if parser is not None else (_text(value) != "")
-            if present:
-                return STATUS_SAVED
-        return ""
-
     # Total Available Volume is entered once per section (above) and read-only here -- shown on
     # only the first row of each section (like the Matrix tool's merged cell).
     first_row_of_section = {key: section_rows[key][0] for key in section_keys}
@@ -206,7 +185,6 @@ def render(session):
         return None
 
     frame = pd.DataFrame(index=rows.index)
-    frame[STATUS_COL] = [status_state.get(oid, initial_status(i)) for i, oid in zip(rows.index, offer_ids)]
     for source, label in ui.MATRIX_COLUMNS:
         frame[label] = _matrix_source(source)
     # Matrix segment color as an emoji square, since the editable grid can't show real cell colors.
@@ -235,14 +213,10 @@ def render(session):
     pct_label, units_label = NEW_LABELS["QUANTITY_PERCENTAGE"], NEW_LABELS["QUANTITY_UNITS"]
     owner_label = NEW_LABELS["OWNER_APPROVER"]
     editable_cols = {pct_label, units_label, owner_label}
-    st.caption(f"{STATUS_SAVED} = every entered value here matches what's saved. {STATUS_UNSAVED} = "
-               "something here hasn't been saved yet. Updates shortly after you act (e.g. edit another "
-               "cell), not on the very keystroke that changed it.")
     edited = st.data_editor(
         frame, hide_index=True, use_container_width=True,
         disabled=[c for c in frame.columns if c not in editable_cols],
         column_config={
-            STATUS_COL: st.column_config.TextColumn(STATUS_COL, width="small"),
             vol_label: st.column_config.TextColumn(vol_label, help="Set above, one per section."),
             pct_label: st.column_config.TextColumn(
                 pct_label, help="Share of this section's Total Available Volume -- a section's "
@@ -359,43 +333,6 @@ def render(session):
         offer_ids[i]: {"pct": final_pct.loc[i], "units": final_units.loc[i]} for i in rows.index
     }
     st.session_state[prev_key] = new_prev_values
-
-    def changed(current, saved_values, parser=None):
-        flags = []
-        for i in rows.index:
-            cur, base = current.loc[i], saved_values.loc[i]
-            if parser is not None:
-                cur_n, base_n = parser(cur), parser(base)
-                if cur_n is not None or base_n is not None:
-                    flags.append(cur_n != base_n)
-                    continue
-            flags.append(_text(cur) != _text(base))
-        return pd.Series(flags, index=rows.index)
-
-    tracking = {
-        vol_label: (resolved_volume.map(ui.format_volume), saved["TOTAL_AVAILABLE_VOLUME"], ui.num),
-        pct_label: (final_pct, saved["QUANTITY_PERCENTAGE"], ui.parse_percent),
-        units_label: (final_units, saved["QUANTITY_UNITS"], ui.parse_volume),
-        owner_label: (edited[owner_label], saved["OWNER_APPROVER"], None),
-    }
-    unsaved = {label: changed(current, base, parser) for label, (current, base, parser) in tracking.items()}
-
-    def row_has_value(i):
-        for label, (current, _base, parser) in tracking.items():
-            value = current.loc[i]
-            if (parser(value) is not None) if parser is not None else (_text(value) != ""):
-                return True
-        return False
-
-    new_status_state = {}
-    for i in rows.index:
-        if any(unsaved[label].loc[i] for label in tracking):
-            new_status_state[offer_ids[i]] = STATUS_UNSAVED
-        elif row_has_value(i):
-            new_status_state[offer_ids[i]] = STATUS_SAVED
-        else:
-            new_status_state[offer_ids[i]] = ""
-    st.session_state[status_key] = new_status_state
 
     if st.button("Save tracking fields", type="primary", icon=":material/save:",
                   disabled=locked, key=f"psp_save_{campaign['id']}"):
