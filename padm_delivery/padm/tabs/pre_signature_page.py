@@ -10,6 +10,14 @@ duplication/conflicts); the main offer grid shows that section's resolved volume
 
 Quantity % and Quantity (Units) are linked: enter either one (a clean number/percentage, not a
 combined free-text note) and the other is calculated from the section's Total Available Volume.
+It's row-by-row, not all-or-nothing -- some rows in a section can use %, others Units, others
+neither. Additionally, once every row but one in a section has a clean value, the single remaining
+row is auto-filled with whatever's left of that section's 100% -- unless any other row in the
+section is free text (e.g. a cutoff-tiered note like "100% (605-645) & 25% BAU volume (646+)"),
+in which case the remaining total can't be known for sure and nothing is auto-filled. A single row
+needing two different percentages for two score sub-bands (as in that same example) stays free
+text, typed exactly as the source shows it -- PADM has no data source giving the population split
+between those sub-bands, so that specific split isn't calculated, only flagged.
 
 One single editable grid for the offers (no separate preview table). Streamlit's st.data_editor
 cannot show per-cell background colors while editable -- there is no supported way around that --
@@ -159,11 +167,18 @@ def render(session):
                 return STATUS_SAVED
         return ""
 
+    # Total Available Volume is entered once per section (above) and is read-only here -- show it
+    # on only the first row of each section (like the Matrix tool's merged cell), blank on the
+    # rest of the section, instead of repeating the same number on every row.
+    first_row_of_section = {key: section_rows[key][0] for key in section_keys}
+
     frame = pd.DataFrame(index=rows.index)
     frame[STATUS_COL] = [status_state.get(oid, initial_status(i)) for i, oid in zip(rows.index, offer_ids)]
     for source, label in ui.MATRIX_COLUMNS:
         frame[label] = rows[source] if source in rows.columns else None
-    frame[vol_label] = resolved_volume.map(ui.format_volume)
+    frame[vol_label] = [ui.format_volume(resolved_volume.loc[i])
+                         if i == first_row_of_section[rows.loc[i, "_SECTION"]] else ""
+                         for i in rows.index]
     frame[NEW_LABELS["QUANTITY_PERCENTAGE"]] = saved["QUANTITY_PERCENTAGE"].map(
         lambda v: _display_text(v, ui.parse_percent, ui.format_percent))
     frame[NEW_LABELS["QUANTITY_UNITS"]] = saved["QUANTITY_UNITS"].map(
@@ -205,6 +220,40 @@ def render(session):
                 final_units.loc[i] = ui.format_volume(volume * pct / 100)
             elif units is not None and pct is None:
                 final_pct.loc[i] = ui.format_percent(units / volume * 100)
+
+    # Section-level remainder: within one section, once every row but one has a clean % or Units
+    # entered, the one remaining blank row is filled with whatever's left of 100% (section total
+    # minus what's already allocated to the other rows), and its Units from that. Only acts when
+    # EXACTLY one row in the section is genuinely blank and every other row resolved to a clean
+    # percentage -- a free-text entry (e.g. a cutoff-tiered note like "100% (605-645) & 25% BAU
+    # volume (646+)") makes the remaining total impossible to know for sure, so the whole section
+    # is left alone rather than guessing.
+    for key in section_keys:
+        idx = section_rows[key]
+        blanks, clean_total, skip = [], 0.0, False
+        for i in idx:
+            raw_pct, raw_units = _text(edited.loc[i, pct_label]), _text(edited.loc[i, units_label])
+            if raw_pct == "" and raw_units == "":
+                blanks.append(i)
+                continue
+            pct = ui.parse_percent(edited.loc[i, pct_label])
+            units = ui.parse_volume(edited.loc[i, units_label])
+            volume = ui.num(resolved_volume.loc[i])
+            if pct is not None:
+                clean_total += pct
+            elif units is not None and volume:
+                clean_total += units / volume * 100
+            else:
+                skip = True  # free text, or Units with no section volume to convert against
+        if skip or len(blanks) != 1:
+            continue
+        i = blanks[0]
+        volume = ui.num(resolved_volume.loc[i])
+        if not volume:
+            continue
+        remainder = 100 - clean_total
+        final_pct.loc[i] = ui.format_percent(remainder)
+        final_units.loc[i] = ui.format_volume(volume * remainder / 100)
 
     # Recompute save state from this run's edits, for the Status column on the NEXT rerun.
     def changed(current, saved_values, parser=None):
