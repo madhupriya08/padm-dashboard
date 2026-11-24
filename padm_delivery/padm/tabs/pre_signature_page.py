@@ -177,10 +177,20 @@ def render(session):
     # only the first row of each section (like the Matrix tool's merged cell).
     first_row_of_section = {key: section_rows[key][0] for key in section_keys}
 
+    # PROGRAM_CODE's source column may come back as PROGRAM instead, depending on how the view's
+    # alias was written in Snowsight -- check both names rather than assuming one.
+    PROGRAM_ALIASES = {"PROGRAM_CODE": ("PROGRAM_CODE", "PROGRAM")}
+
+    def _matrix_source(source):
+        for candidate in PROGRAM_ALIASES.get(source, (source,)):
+            if candidate in rows.columns:
+                return rows[candidate]
+        return None
+
     frame = pd.DataFrame(index=rows.index)
     frame[STATUS_COL] = [status_state.get(oid, initial_status(i)) for i, oid in zip(rows.index, offer_ids)]
     for source, label in ui.MATRIX_COLUMNS:
-        frame[label] = rows[source] if source in rows.columns else None
+        frame[label] = _matrix_source(source)
     # Matrix segment color as an emoji square, since the editable grid can't show real cell colors.
     if "Segment" in frame.columns:
         def _segment_cell(s, d):
