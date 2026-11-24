@@ -30,6 +30,19 @@ from padm.tabs import (
 
 st.set_page_config(page_title="PADM Sign-Off Dashboard", page_icon=":material/fact_check:", layout="wide")
 
+# Access is limited to the usernames below (Snowflake CURRENT_USER()). TODO: replace with the real
+# project team list before relying on this -- empty/placeholder values below mean nobody passes.
+AUTHORIZED_USERS = {
+    # "FIRSTNAME.LASTNAME",
+}
+
+
+def _authorized(session) -> bool:
+    if not AUTHORIZED_USERS:
+        return True  # gate is off until AUTHORIZED_USERS is filled in
+    current_user = session.sql("SELECT CURRENT_USER()").collect()[0][0]
+    return current_user in AUTHORIZED_USERS
+
 TABS = [
     ("Campaign Creation", ":material/add_box:", campaign_creation),
     ("Pre Signature Page", ":material/checklist:", pre_signature_page),
@@ -109,9 +122,12 @@ def _landing(session) -> None:
 
 
 def main() -> None:
+    session = get_active_session()
+    if not _authorized(session):
+        return  # blank page for anyone not on AUTHORIZED_USERS
+
     st.sidebar.checkbox("Debug mode", key="debug_mode",
                          help="Show full Python tracebacks alongside error messages, for diagnosing issues live.")
-    session = get_active_session()
     campaign = ui.campaign_context(session)
 
     if campaign is None:
