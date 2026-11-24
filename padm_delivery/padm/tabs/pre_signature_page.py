@@ -7,13 +7,14 @@ Total Available Volume is one shared number per segment section, matching the Ma
 merged-cell layout. st.data_editor can't merge cells, so it gets its own small editor with exactly
 one row per section; the main offer grid shows that section's resolved volume read-only.
 
-Quantity % and Quantity (Units) are linked as a waterfall down each section, in row order, matching
-the Matrix tool's own layout (its "BALANCE" rows and approximate "~228K"-style remainders are
-calculated leftovers, not typed numbers). Each row's % applies to whatever volume is left after the
-rows above it, not to the section's original total, so percentages on different rows aren't
-comparable to one another. Units are the primary input (a straight subtraction from what's left); a
-clean % resolves to units the same way, against the current remaining amount. Whichever cell was
-just edited wins and recalculates its counterpart, even when a row already has both filled in.
+Quantity % and Quantity (Units) are linked within each section, in row order. Quantity % is always a
+share of the section's own Total Available Volume, so percentages across a section's rows are
+directly comparable and should add up to 100% (or less, if some volume is left unallocated).
+Quantity (Units) is a waterfall matching the Matrix tool's own layout (its "BALANCE" rows and
+approximate "~228K"-style remainders are calculated leftovers, not typed numbers): each row's units
+are a straight subtraction from whatever volume is left after the rows above it. Units are the
+primary input; a clean % resolves to units against the section's total (not what's left). Whichever
+cell was just edited wins and recalculates its counterpart, even when a row already has both filled in.
 Free text (e.g. a cutoff-tiered note like "100% (605-645) & 25% BAU volume (646+)") is left as
 typed and doesn't consume any of the running total -- PADM has no population-split data for that
 kind of entry, so it's flagged rather than calculated. The one remaining blank row in a section
@@ -227,8 +228,8 @@ def render(session):
             STATUS_COL: st.column_config.TextColumn(STATUS_COL, width="small"),
             vol_label: st.column_config.TextColumn(vol_label, help="Set above, one per section."),
             pct_label: st.column_config.TextColumn(
-                pct_label, help="Waterfall: % of what's left in this section after the rows above it, "
-                "not of the section's original total."),
+                pct_label, help="Share of this section's Total Available Volume -- a section's "
+                "percentages should add up to 100% (or less, if volume is left unallocated)."),
             units_label: st.column_config.TextColumn(units_label),
             owner_label: st.column_config.TextColumn(owner_label),
         },
@@ -278,13 +279,13 @@ def render(session):
             if units_changed and not pct_changed and units is not None:
                 row_units = units
             elif pct_changed and not units_changed and pct is not None:
-                row_units = remaining * pct / 100
+                row_units = volume * pct / 100
             elif units is not None:
                 row_units = units
             else:
-                row_units = remaining * pct / 100
+                row_units = volume * pct / 100
             final_units.loc[i] = ui.format_volume(row_units)
-            final_pct.loc[i] = ui.format_percent(row_units / remaining * 100) if remaining else ui.format_percent(0)
+            final_pct.loc[i] = ui.format_percent(row_units / volume * 100) if volume else ui.format_percent(0)
             remaining -= row_units
 
         if not skip and len(blanks) == 1 and remaining is not None:
@@ -312,8 +313,8 @@ def render(session):
                                     f"{ui.format_volume(volume)} allocated, {ui.format_volume(remaining)} remaining.")
     if over_allocated_errors:
         st.error("\n\n".join(over_allocated_errors))
-    st.markdown("**Allocation by section (waterfall -- each row from what's left after the rows "
-                "above it):**\n\n" + "\n".join(remaining_lines))
+    st.markdown("**Allocation by section** (Quantity % = share of the section total; Quantity (Units) "
+                "= a waterfall, each row from what's left after the rows above it):\n\n" + "\n".join(remaining_lines))
 
     # Read-only colored preview: st.data_editor can't paint a cell's background while editable, so
     # real per-row color lives in a second, read-only table, built the same way as Segment Viewer's
