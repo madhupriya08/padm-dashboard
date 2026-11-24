@@ -147,8 +147,20 @@ def render(session):
     status_state = st.session_state.get(status_key, {})
     offer_ids = [str(rows.loc[i, "CAMPAIGN_OFFER_ID"]) for i in rows.index]
 
+    def initial_status(i):
+        """Status for a row session_state has no computed value for yet -- i.e. before the first
+        edit this session. Falls back to what's actually saved (not blank), so a campaign loaded
+        with existing data shows 🟢 immediately instead of waiting for an edit to happen first."""
+        for col, parser in (("TOTAL_AVAILABLE_VOLUME", ui.num), ("QUANTITY_PERCENTAGE", ui.parse_percent),
+                            ("QUANTITY_UNITS", ui.parse_volume), ("OWNER_APPROVER", None)):
+            value = saved.loc[i, col]
+            present = (parser(value) is not None) if parser is not None else (_text(value) != "")
+            if present:
+                return STATUS_SAVED
+        return ""
+
     frame = pd.DataFrame(index=rows.index)
-    frame[STATUS_COL] = [status_state.get(oid, "") for oid in offer_ids]
+    frame[STATUS_COL] = [status_state.get(oid, initial_status(i)) for i, oid in zip(rows.index, offer_ids)]
     for source, label in ui.MATRIX_COLUMNS:
         frame[label] = rows[source] if source in rows.columns else None
     frame[vol_label] = resolved_volume.map(ui.format_volume)
