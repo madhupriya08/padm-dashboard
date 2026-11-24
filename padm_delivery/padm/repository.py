@@ -323,7 +323,9 @@ def previous_pre_signature_detail(session, campaign_id):
 
 def save_pre_signature_detail(session, campaign_id, rows, reason):
     """rows: [{CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY_PERCENTAGE, QUANTITY_UNITS,
-    OWNER_APPROVER}, ...]. Soft-versions: retires the current row for each offer, inserts a new one."""
+    OWNER_APPROVER}, ...]. Soft-versions: retires the current row for each offer, inserts a new one.
+    All new rows go in as one INSERT -- one row per offer in a Python loop meant one Snowflake
+    round-trip per offer, which is what made Save slow for a campaign with many offers."""
     _assert_editable(session, campaign_id)
     if not rows:
         return "Nothing to save."
@@ -338,19 +340,21 @@ def save_pre_signature_detail(session, campaign_id, rows, reason):
             """,
             [campaign_id, *offer_ids],
         )
+        value_rows = ", ".join(["(UUID_STRING(), ?, ?, ?, ?, ?, ?, TRUE, ?)"] * len(rows))
+        binds = []
         for r in rows:
-            exec_sql(
-                session,
-                f"""
-                INSERT INTO {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL
-                    (PRE_SIGNATURE_DETAIL_ID, CAMPAIGN_ID, CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME,
-                     QUANTITY_PERCENTAGE, QUANTITY_UNITS, OWNER_APPROVER, IS_CURRENT, CHANGE_REASON)
-                SELECT UUID_STRING(), %(c)s, %(o)s, %(v)s, %(qp)s, %(qu)s, %(a)s, TRUE, %(r)s
-                """,
-                {"c": campaign_id, "o": r["CAMPAIGN_OFFER_ID"], "v": r["TOTAL_AVAILABLE_VOLUME"],
-                 "qp": r["QUANTITY_PERCENTAGE"], "qu": r["QUANTITY_UNITS"], "a": r["OWNER_APPROVER"],
-                 "r": reason},
-            )
+            binds += [campaign_id, r["CAMPAIGN_OFFER_ID"], r["TOTAL_AVAILABLE_VOLUME"],
+                      r["QUANTITY_PERCENTAGE"], r["QUANTITY_UNITS"], r["OWNER_APPROVER"], reason]
+        exec_sql(
+            session,
+            f"""
+            INSERT INTO {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL
+                (PRE_SIGNATURE_DETAIL_ID, CAMPAIGN_ID, CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME,
+                 QUANTITY_PERCENTAGE, QUANTITY_UNITS, OWNER_APPROVER, IS_CURRENT, CHANGE_REASON)
+            VALUES {value_rows}
+            """,
+            binds,
+        )
     return f"Saved tracking fields for {len(rows)} offer(s)."
 
 
