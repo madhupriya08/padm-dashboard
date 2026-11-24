@@ -75,6 +75,13 @@ def render(session):
         st.info("No ACM offers are snapshotted for this campaign yet.")
         return
     rows = rows.copy()
+    # VW_PADM_SIGNATURE_PAGE_LIVE is grouped by segment as well as offer, so an offer allocated to
+    # more than one segment comes back as more than one row here. Pre Signature Page's 4 tracking
+    # fields are offer-grain, not offer+segment-grain -- collapse to one row per offer before
+    # anything else is keyed off CAMPAIGN_OFFER_ID, otherwise Save ends up writing more than one
+    # "current" row per offer.
+    if "CAMPAIGN_OFFER_ID" in rows.columns:
+        rows = rows.drop_duplicates(subset="CAMPAIGN_OFFER_ID", keep="first")
     rows["_SORT"] = [ui.segment_sort_rank(s, d) for s, d in
                       zip(rows.get("ACM_SEGMENT", ""), rows.get("SEGMENT_DESCRIPTION", ""))]
     sort_cols = [c for c in ["_SORT", "CREDIT_BUREAU_SCORE", "TEST_TYPE"] if c in rows.columns]
@@ -83,6 +90,12 @@ def render(session):
                          zip(rows.get("ACM_SEGMENT", ""), rows.get("SEGMENT_DESCRIPTION", ""))]
 
     current = repository.pre_signature_detail(session, campaign["id"])
+    if not current.empty:
+        # Defensive: a prior save from before the dedupe above may have already left more than one
+        # IS_CURRENT row for the same offer -- keep the most recently created one so a read never
+        # hands back a Series where a scalar is expected.
+        current = current.sort_values("CREATED_TS").drop_duplicates(
+            subset="CAMPAIGN_OFFER_ID", keep="last").drop(columns="CREATED_TS")
     current_by_offer = current.set_index("CAMPAIGN_OFFER_ID") if not current.empty else current
 
     prior = repository.previous_pre_signature_detail(session, campaign["id"])

@@ -290,11 +290,14 @@ def signature_live(session, campaign_id):
 
 def pre_signature_detail(session, campaign_id):
     """Current Total Available Volume / Quantity % / Quantity (units) / Owner-Approver for this
-    campaign's offers."""
+    campaign's offers. CREATED_TS is included so a caller can pick the most recent row if more than
+    one IS_CURRENT row ever exists for the same offer (padm/tabs/pre_signature_page.py guards
+    against this)."""
     return df(
         session,
         f"""
-        SELECT CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY_PERCENTAGE, QUANTITY_UNITS, OWNER_APPROVER
+        SELECT CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY_PERCENTAGE, QUANTITY_UNITS,
+               OWNER_APPROVER, CREATED_TS
         FROM {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL WHERE CAMPAIGN_ID = %(c)s AND IS_CURRENT = TRUE
         """,
         {"c": campaign_id},
