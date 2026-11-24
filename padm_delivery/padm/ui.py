@@ -312,13 +312,12 @@ def segment_color(segment, description=""):
 
 
 # Nearest-match palette for showing a segment's real Matrix color as a plain-text emoji square --
-# the only way to show actual color on a value inside an editable st.data_editor grid, which can't
-# render cell background colors at all. Matched by HUE (not raw RGB distance -- tried that first;
-# since the real Matrix colors are mostly pale pastel tints, plain RGB distance put almost every
-# one of them nearest to plain white, which showed no differentiation at all). This is still a
-# many-to-one approximation (19 distinct Matrix hex colors -> ~7 emoji square colors), not a 1:1
-# match -- several segment colors legitimately map to the same square. Use segment_color() itself
-# (e.g. in a read-only st.dataframe) wherever exact color fidelity matters.
+# the only way to show color on a value inside an editable st.data_editor grid, which can't render
+# cell background colors at all. Matched by hue rather than raw RGB distance: the real Matrix
+# colors are mostly pale pastel tints, and RGB distance puts almost all of them nearest to plain
+# white, losing all differentiation. This is a many-to-one approximation (19 distinct Matrix hex
+# colors -> ~7 emoji square colors), not a 1:1 match. Use segment_color() itself (e.g. in a
+# read-only st.dataframe) wherever exact color fidelity matters.
 _EMOJI_HUE_PALETTE = [
     ("\U0001F7E5", 0 / 360),     # 🟥 red
     ("\U0001F7E7", 30 / 360),    # 🟧 orange
@@ -521,9 +520,9 @@ def totals_display(totals, label, mask_calculated=False):
 
 # Columns whose real value is per-SEGMENT, not per-offer: VW_PADM_SIGNATURE_PAGE_LIVE's
 # calculation join is on (CAMPAIGN_ID, SEGMENT_ID) only, with no offer dimension, so these are
-# already identical across every offer row within the same segment (confirmed from the view's own
-# SQL). Everything else in SIGNATURE_COLUMNS is a real per-offer attribute (Test Type, Promo, IVR,
-# etc.) that can legitimately differ between offers in the same segment.
+# identical across every offer row within the same segment. Everything else in SIGNATURE_COLUMNS
+# is a real per-offer attribute (Test Type, Promo, IVR, etc.) that can differ between offers in
+# the same segment.
 SEGMENT_LEVEL_COLUMNS = {
     "QUANTITY", "NBR", "BOARDS", "CPP", "MARKETING_EXPENSE", "UNWIND_RATE", "PRE_UNWIND_CPA",
     "POST_UNWIND_CPA", "TIMES_MAILED_0_PERCENTAGE", "TIERS", "POST_UNWIND_BOARDS",

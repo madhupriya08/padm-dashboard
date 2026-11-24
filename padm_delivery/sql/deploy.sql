@@ -603,15 +603,13 @@ SELECT
 
 FROM CAMPAIGN_GRAIN;
 
--- Source: sql/views.sql lines 571-795, SELECT list and FROM/JOIN copied verbatim. NOTE: the
--- WHERE clause in that source statement is corrupted (duplicated, with the second copy
--- containing an empty UPPER() call with no argument) -- it would not run as valid SQL if
--- pasted as-is. Reconstructed below as a single WHERE using every distinct predicate present
--- in the source, ending in "LENGTH(TRIM(O.CAMPAIGN_OFFER_RESERVATION_CODE)) <= 6" -- the same
--- "<= 6" completion already used, uncorrupted, by the otherwise-identical WHERE clause of
--- VW_PADM_ACM_CAMPAIGN_CANDIDATE immediately above (sql/views.sql lines 421-464). No column or
--- logic here is invented; this only removes the duplicate "WHERE" keyword and the stray empty
--- UPPER() fragment. Flagged for review -- see this change's report.
+-- Source: sql/views.sql lines 571-795, SELECT list and FROM/JOIN copied verbatim. The WHERE
+-- clause in that source statement is corrupted (duplicated, with the second copy containing an
+-- empty UPPER() call with no argument) and would not run as valid SQL as-is. Reconstructed below
+-- as a single WHERE using every distinct predicate present in the source, ending in
+-- "LENGTH(TRIM(O.CAMPAIGN_OFFER_RESERVATION_CODE)) <= 6" -- the same "<= 6" completion used,
+-- uncorrupted, by the otherwise-identical WHERE clause of VW_PADM_ACM_CAMPAIGN_CANDIDATE above
+-- (sql/views.sql lines 421-464). Review before relying on this in production.
 CREATE OR REPLACE VIEW
     VW_PADM_ACM_OFFER_SOURCE
 AS
@@ -1240,8 +1238,8 @@ FROM
     UNION ALL SELECT 'CRS_SCORE', TO_VARCHAR(PROSPECT_CRS_SCORE) FROM RECENT
     UNION ALL SELECT 'ANNUAL_FEE', PROGRAM_ANNUAL_FEE FROM RECENT
     UNION ALL SELECT 'NETWORK', PROGRAM_NETWORK FROM RECENT
-    -- RESPONSE_MODEL_TYPE intentionally not added here: no confirmed raw ACM column backs it
-    -- (Create Segment's Response Model Type dropdown is empty today) -- confirm the real source
+    -- RESPONSE_MODEL_TYPE intentionally not added here: no raw ACM column backs it yet
+    -- (Create Segment's Response Model Type dropdown is empty today) -- identify the real source
     -- column before adding a branch here.
 ) AS ALL_FIELDS;
 
@@ -2166,7 +2164,7 @@ CREATE OR REPLACE VIEW VW_PADM_SEGMENT_SOURCE_CANDIDATE(
     LAST_MAIL_DATE
 ) AS
 -- PROSPECT_TYPE/PROSPECT_SOURCE are NOT raw columns on the mailfile tables -- they're derived from
--- CAMPAIGN_SOURCE (a single letter/digit code), confirmed from the real classification script.
+-- CAMPAIGN_SOURCE (a single letter/digit code), per the real classification script.
 -- PROSPECT_SEGMENT_TYPE below reproduces that script's PROSPECTING/RETARGETING split; SOURCE_SEGMENT_NAME
 -- carries the script's own finer-grained prospect_type label (e.g. 'PCO', 'Experian Vantage MLA') for
 -- readability, informational only -- it isn't selected into the MERGE below. The former 'LIFT' leg is
@@ -2245,10 +2243,10 @@ WITH RAW_SCORES AS
     WHERE PRESCREEN_VANTAGE_V3 IS NOT NULL
 
     -- T_MAP_MAILFILE: existing-customer "multiple account" offers (CAMPAIGN_SOURCE is always 'S'
-    -- across the whole table -- confirmed via SELECT DISTINCT). No RESPONSE_MODEL_TYPE/RISK_SCORE_TYPE
-    -- column exists here, and PRESCREEN_VANTAGE_V3 is stored as VARCHAR -- TRY_CAST handles any blank/
-    -- non-numeric values gracefully. Classified RETARGETING: this is a repeat-contact offer to a
-    -- current customer, not new-prospect outreach.
+    -- across the whole table). No RESPONSE_MODEL_TYPE/RISK_SCORE_TYPE column exists here, and
+    -- PRESCREEN_VANTAGE_V3 is stored as VARCHAR -- TRY_CAST handles any blank/non-numeric values
+    -- gracefully. Classified RETARGETING: this is a repeat-contact offer to a current customer,
+    -- not new-prospect outreach.
     UNION ALL
     SELECT 'MAP', 'RETARGETING', 'MAP (existing-customer multiple account offer)',
            'N', NULL, NULL, MAIL_DATE, 'VS3', TRY_CAST(PRESCREEN_VANTAGE_V3 AS NUMBER(10,0))

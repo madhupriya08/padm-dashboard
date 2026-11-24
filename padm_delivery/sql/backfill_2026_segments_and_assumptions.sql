@@ -8,8 +8,8 @@ SELECT DISTINCT CAMPAIGN_SOURCE FROM CSTONE_BIZ.REFERENCE.T_TRANSUNION_MAILFILE
 WHERE MAIL_DATE >= '2026-01-01' AND MAIL_DATE < '2027-01-01';
 
 -- CAMPAIGN_SOURCE on the raw mailfile tables is NOT 'PADM'/'MAP'/'PAREMAIL' -- it's a single
--- letter/digit code (confirmed from the real classification script: 'V','E','A','W','C','D','M',
--- 'R','N','I','G','B','J','Q' for Experian; 'U','1'-'9','H','L','Z' for TransUnion). CAMPAIGN_WAVE
+-- letter/digit code per the real classification script: 'V','E','A','W','C','D','M',
+-- 'R','N','I','G','B','J','Q' for Experian; 'U','1'-'9','H','L','Z' for TransUnion. CAMPAIGN_WAVE
 -- below reproduces that script's own CAMPAIGN_SOURCE -> MAIN/REMAIL mapping exactly (its REMAIL
 -- codes are additionally gated on CAMPAIGN_SCORE_SEGMENT IN ('02','03','04','05'), kept here).
 -- PROSPECT_SEGMENT_TYPE is carried through for completeness/future use but is not currently part
@@ -80,13 +80,12 @@ WITH RAW_MAILFILE AS
       AND MAIL_DATE >= '2026-01-01' AND MAIL_DATE < '2027-01-01'
 
     -- T_MAP_MAILFILE: existing-customer "multiple account" offers. CAMPAIGN_SOURCE is a constant
-    -- 'S' across the whole table (confirmed via SELECT DISTINCT) -- always folds into REMAIL per
-    -- the campaign model (MAP + PAREMAIL -> REMAIL). Classified RETARGETING: a repeat-contact offer
-    -- to a current customer, not new-prospect outreach. JUDGMENT CALL, not a confirmed fact: this
-    -- table has no RESPONSE_MODEL_TIER or TIMES_MAILED column at all, so both are set to a single
-    -- placeholder value (0 / '0') meaning "no tier/times-mailed breakdown exists for MAP" -- flag
-    -- this to the business; if MAP volume needs its own real tier dimension later, don't just widen
-    -- this placeholder, trace back to a real source column first.
+    -- 'S' across the whole table -- always folds into REMAIL per the campaign model (MAP +
+    -- PAREMAIL -> REMAIL). Classified RETARGETING: a repeat-contact offer to a current customer,
+    -- not new-prospect outreach. Open item: this table has no RESPONSE_MODEL_TIER or TIMES_MAILED
+    -- column at all, so both are set to a single placeholder value (0 / '0') meaning "no tier/
+    -- times-mailed breakdown exists for MAP" -- if MAP volume needs its own real tier dimension
+    -- later, trace back to a real source column rather than widening this placeholder.
     UNION ALL
     SELECT 'MAP', 'REMAIL', 'RETARGETING', 'N', NULL, NULL, 0, MAIL_DATE, '0',
            'VS3', TRY_CAST(PRESCREEN_VANTAGE_V3 AS NUMBER(10,0))
@@ -128,7 +127,7 @@ INSERT INTO DM_PADM_CAMPAIGN_ASSUMPTION_VERSION
     (CAMPAIGN_ASSUMPTION_VERSION_ID, CAMPAIGN_ID, VERSION_NUMBER, CPP, IS_CURRENT, CHANGE_REASON,
      ROW_VERSION, UPDATED_BY, UPDATED_TS)
 SELECT UUID_STRING(), C.CAMPAIGN_ID, 1, AVG(O.SOURCE_CPP), TRUE,
-       'Backfilled from ACM SOURCE_CPP (2026 historical load) -- Unit Cost/NBR/Unwind Rate/Rate Adjustment/Seasonality have no confirmed historical source and are left blank',
+       'Backfilled from ACM SOURCE_CPP (2026 historical load) -- Unit Cost/NBR/Unwind Rate/Rate Adjustment/Seasonality have no historical source and are left blank',
        1, CURRENT_USER(), CURRENT_TIMESTAMP()
 FROM DM_PADM_CAMPAIGN_1 AS C
 JOIN DM_PADM_CAMPAIGN_OFFER AS O ON O.CAMPAIGN_ID = C.CAMPAIGN_ID AND O.IS_CURRENT = TRUE

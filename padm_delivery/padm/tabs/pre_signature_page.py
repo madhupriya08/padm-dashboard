@@ -4,47 +4,27 @@ Owner/Approver. Carries forward from the previous campaign for a matching offer 
 code) until saved here, and persists to a real table instead of an Excel file.
 
 Total Available Volume is one shared number per segment section, matching the Matrix tool's
-merged-cell layout. Since st.data_editor can't merge cells, it gets its own small editor with
-exactly one row per section (so there is exactly one place to enter it, no per-offer-row
-duplication/conflicts); the main offer grid shows that section's resolved volume read-only.
+merged-cell layout. st.data_editor can't merge cells, so it gets its own small editor with exactly
+one row per section; the main offer grid shows that section's resolved volume read-only.
 
-Quantity % and Quantity (Units) are linked as a WATERFALL down each section, in row order --
-confirmed directly from the real Matrix tool's own structure (its "BALANCE" rows and approximate
-"~228K"-style calculated remainders only make sense as leftover amounts, not typed numbers), not
-guessed. Each row's % applies to whatever volume is left after the rows above it in the same
-section, not to the section's original total -- so percentages on different rows are not
-comparable or summable the way they would be against one fixed total; each is only meaningful
-relative to its own position. Units are the primary, unambiguous input (a straight subtraction
-from what's left); entering a clean % instead resolves to units the same way, relative to what's
-left at that row. Whichever cell you just changed wins and recalculates its counterpart when a row
-already has both filled in (detected by comparing against what the widget itself returned on the
-previous run -- see prev_key below -- not by comparing against the redisplayed frame, which would
-be unreliable). A clean value is also re-displayed in its canonical format (a typed "80" becomes
-"80%"). It's row-by-row, not all-or-nothing -- some rows in a section can use %, others Units,
-others neither; free text (e.g. a cutoff-tiered note like "100% (605-645) & 25% BAU volume
-(646+)") is left exactly as typed and doesn't consume any of the running total, but does stop that
-section's total from being trustworthy -- PADM has no data source giving the population split for
-that kind of row anyway, so it isn't calculated, only flagged. Once every row but one in a section
-is filled in, the single remaining (genuinely blank) row absorbs whatever's left -- the Matrix
-tool's own "BALANCE" row, made explicit. If the rows already filled in add up to MORE than the
-section's volume on their own, nothing is auto-filled into the remaining row and the section is
-flagged as a real validation error (st.error) instead of silently accepted. An "Allocation by
-section" readout right below the grid shows each section's volume, how much is allocated, and
-what's left (or how far over-allocated it is), recomputed fresh (no lag) on every edit.
+Quantity % and Quantity (Units) are linked as a waterfall down each section, in row order, matching
+the Matrix tool's own layout (its "BALANCE" rows and approximate "~228K"-style remainders are
+calculated leftovers, not typed numbers). Each row's % applies to whatever volume is left after the
+rows above it, not to the section's original total, so percentages on different rows aren't
+comparable to one another. Units are the primary input (a straight subtraction from what's left); a
+clean % resolves to units the same way, against the current remaining amount. Whichever cell was
+just edited wins and recalculates its counterpart, even when a row already has both filled in.
+Free text (e.g. a cutoff-tiered note like "100% (605-645) & 25% BAU volume (646+)") is left as
+typed and doesn't consume any of the running total -- PADM has no population-split data for that
+kind of entry, so it's flagged rather than calculated. The one remaining blank row in a section
+absorbs whatever's left, matching the sheet's own BALANCE row. Entries that already exceed a
+section's volume are flagged as a validation error rather than accepted silently.
 
-Two tables for the offers: a plain editable grid, and a read-only colored preview below it.
-Streamlit's st.data_editor cannot show per-cell (or per-row) background colors while editable --
-there is no supported way around that, for a single cell or a whole row alike -- so:
-- The editable grid carries a leading Status column instead: a green/red circle per row, green
-  once every tracking value you've entered matches what's saved, red if anything differs. It
-  updates one rerun behind your very latest keystroke (the status shown reflects the edit before
-  the one just made, carried across reruns via session_state) -- the same kind of reactive lag
-  every other derived value on this page already has. The Segment column also carries an emoji
-  square approximating that row's real Matrix color (see ui.segment_color_emoji()).
-- The read-only preview mirrors Segment Viewer's own proven styling pattern (a same-shape
-  DataFrame of CSS strings applied with Styler.apply(..., axis=None)) to color the WHOLE row by
-  its real Matrix segment hex color -- everything except the 4 tracking columns on the right,
-  which are left plain."""
+Two tables: a plain editable grid, and a read-only colored preview below it. st.data_editor can't
+show per-cell or per-row background colors while editable, so the grid carries a Status column
+(green/red per row, lagging one rerun behind the latest edit) and an emoji square approximating
+each row's Matrix segment color; the preview colors the whole row with the real segment hex color,
+using the same Styler pattern as Segment Viewer."""
 
 import pandas as pd
 import streamlit as st
@@ -65,18 +45,16 @@ STATUS_UNSAVED = "\U0001F534"   # red circle
 
 
 def _text(value):
-    """None/NaN -> "" ; everything else -> a plain stripped string. Keeps a column's pandas dtype
-    as plain text (object) from the start, so Streamlit can't infer a numeric column type for it
-    and reject free-text entries like '100% (605-645) & 25% BAU volume (646+)'."""
+    """None/NaN -> "" ; everything else -> a plain stripped string. Keeps the column's dtype as
+    plain text so Streamlit doesn't infer a numeric column and reject free-text entries."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ""
     return str(value).strip()
 
 
 def _display_text(value, parser, formatter):
-    """Like _text(), but if the value parses as a clean number, show it formatted (so a raw DB
-    number like 25.0 displays as '25%' / '25,000') -- otherwise falls back to the raw text as-is
-    (a free-text note is never reformatted or dropped)."""
+    """Like _text(), but formats a clean number through `formatter`; a free-text value is left
+    exactly as typed."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ""
     parsed = parser(value)
@@ -126,7 +104,7 @@ def render(session):
         saved[col] = [value_for(i, col) for i in rows.index]
 
     # Sections in display order (first occurrence), each a group of offer rows sharing one Matrix
-    # segment color -- exactly where the Matrix tool shows one merged Available Volume cell.
+    # segment color -- where the Matrix tool shows one merged Available Volume cell.
     section_keys = list(dict.fromkeys(rows["_SECTION"]))
     section_rows = {key: rows.index[rows["_SECTION"] == key] for key in section_keys}
 
@@ -163,35 +141,30 @@ def render(session):
     section_volume = {k: ui.parse_volume(section_edited.loc[k, vol_label]) for k in section_keys}
     resolved_volume = rows["_SECTION"].map(section_volume)
 
-    # Status column: a leading per-row 🟢/🔴 indicator baked into the same editable grid, seeded
-    # from the save-state this page computed on the PREVIOUS rerun (stored in session_state just
-    # below) -- one rerun behind the very latest keystroke, same as the %/Units auto-fill already
-    # is on this page, since a value computed from this grid's own edits can't be redrawn into it
-    # within that same run.
+    # Status column seeded from the save-state computed on the previous rerun -- a value computed
+    # from this grid's own edits can't be redrawn into it within the same run.
     status_key = f"psp_status_{campaign['id']}"
     status_state = st.session_state.get(status_key, {})
     offer_ids = [str(rows.loc[i, "CAMPAIGN_OFFER_ID"]) for i in rows.index]
 
-    # Quantity %/Units auto-fill (computed after the grid below renders, same as Status) is seeded
-    # back in here from session_state -- otherwise the cell you DIDN'T type into would only ever
-    # show the calculated value after you hit Save (reload from the database), not as you work.
+    # Quantity %/Units auto-fill is seeded back in from session_state too, so the cell you didn't
+    # type into shows the calculated value right away instead of only after a Save.
     calc_key = f"psp_calc_{campaign['id']}"
     calc_state = st.session_state.get(calc_key, {})
 
-    # What the %/Units cells actually held last time this ran -- used below to detect which one
-    # you just edited. This can't be done by comparing against `frame` (what we're ABOUT to
-    # display): st.data_editor keeps re-asserting whatever you last typed into a given cell on
-    # every rerun, regardless of what new `data` is passed in, so once you've typed into BOTH %
-    # and Units at different times, both would permanently look "changed" against any recalculated
-    # frame we try to show, and neither would ever recalculate again. Comparing against the
-    # widget's own previous output instead is immune to that.
+    # What the %/Units cells held last run, used below to detect which one was just edited.
+    # Comparing against `frame` (what we're about to display) doesn't work: st.data_editor keeps
+    # re-asserting whatever was last typed into a cell on every rerun regardless of the new data
+    # passed in, so once both % and Units have been typed into at different times, both would look
+    # permanently "changed" against any recalculated frame. Comparing against the widget's own
+    # previous output avoids that.
     prev_key = f"psp_prev_values_{campaign['id']}"
     prev_values = st.session_state.get(prev_key, {})
 
     def initial_status(i):
-        """Status for a row session_state has no computed value for yet -- i.e. before the first
-        edit this session. Falls back to what's actually saved (not blank), so a campaign loaded
-        with existing data shows 🟢 immediately instead of waiting for an edit to happen first."""
+        """Status for a row session_state has no computed value for yet (before the first edit
+        this session) -- falls back to what's actually saved, so existing data shows green
+        immediately instead of waiting for an edit."""
         for col, parser in (("TOTAL_AVAILABLE_VOLUME", ui.num), ("QUANTITY_PERCENTAGE", ui.parse_percent),
                             ("QUANTITY_UNITS", ui.parse_volume), ("OWNER_APPROVER", None)):
             value = saved.loc[i, col]
@@ -200,17 +173,15 @@ def render(session):
                 return STATUS_SAVED
         return ""
 
-    # Total Available Volume is entered once per section (above) and is read-only here -- show it
-    # on only the first row of each section (like the Matrix tool's merged cell), blank on the
-    # rest of the section, instead of repeating the same number on every row.
+    # Total Available Volume is entered once per section (above) and read-only here -- shown on
+    # only the first row of each section (like the Matrix tool's merged cell).
     first_row_of_section = {key: section_rows[key][0] for key in section_keys}
 
     frame = pd.DataFrame(index=rows.index)
     frame[STATUS_COL] = [status_state.get(oid, initial_status(i)) for i, oid in zip(rows.index, offer_ids)]
     for source, label in ui.MATRIX_COLUMNS:
         frame[label] = rows[source] if source in rows.columns else None
-    # Matrix segment color, approximated as an emoji square (editable grids can't show real cell
-    # background colors) -- prefixed onto the Segment column's own text.
+    # Matrix segment color as an emoji square, since the editable grid can't show real cell colors.
     if "Segment" in frame.columns:
         def _segment_cell(s, d):
             emoji = ui.segment_color_emoji(s, d)
@@ -246,7 +217,7 @@ def render(session):
             STATUS_COL: st.column_config.TextColumn(STATUS_COL, width="small"),
             vol_label: st.column_config.TextColumn(vol_label, help="Set above, one per section."),
             pct_label: st.column_config.TextColumn(
-                pct_label, help="Waterfall: % of what's LEFT in this section after the rows above it, "
+                pct_label, help="Waterfall: % of what's left in this section after the rows above it, "
                 "not of the section's original total."),
             units_label: st.column_config.TextColumn(units_label),
             owner_label: st.column_config.TextColumn(owner_label),
@@ -254,18 +225,11 @@ def render(session):
         key=f"psp_editor_{campaign['id']}",
     )
 
-    # Quantity % and Quantity (Units) are linked as a WATERFALL down each section, in row order --
-    # confirmed directly from the real Matrix tool (its own "BALANCE" rows and approximate "~228K"-
-    # style calculated remainders prove this, not a guess): each row's % applies to whatever volume
-    # is LEFT after the rows above it in the same section, not to the section's original total.
-    # Units are the primary, unambiguous input (a straight subtraction from what's left); % is a
-    # convenience that resolves to units the same way. Whichever cell you just changed THIS edit
-    # wins when a row already has both filled in (detected by comparing against what the widget
-    # itself returned on the previous run, prev_values -- comparing against `frame` would be
-    # unreliable, see prev_key's comment above). A row's % is therefore only meaningful relative to
-    # ITS OWN position in the section -- percentages across different rows are not comparable or
-    # summable the way they would be against a fixed total. Free-text/combined entries (not a
-    # single clean number) are left exactly as typed and don't consume any of the running total.
+    # Quantity % and Quantity (Units) waterfall down each section in row order: each row's % is
+    # relative to whatever volume is left after the rows above it, not the section's original
+    # total. Units are the primary input (a straight subtraction from what's left); a clean %
+    # resolves to units against the current remaining amount. Whichever cell was just edited wins
+    # when a row already has both filled in.
     final_pct, final_units = edited[pct_label].copy(), edited[units_label].copy()
     new_prev_values = {}
     OVER_ALLOCATED_TOLERANCE = 1e-6
@@ -294,7 +258,7 @@ def render(session):
                 skip = True  # free text -- doesn't consume any of the running total
                 continue
             if remaining is None:
-                # No section volume set yet -- just canonical-format what's typed, no waterfall math.
+                # No section volume set yet -- canonical-format what's typed, no waterfall math.
                 if pct is not None:
                     final_pct.loc[i] = ui.format_percent(pct)
                 if units is not None:
@@ -314,8 +278,8 @@ def render(session):
             remaining -= row_units
 
         if not skip and len(blanks) == 1 and remaining is not None:
-            # The Matrix tool's own "BALANCE" row -- the one remaining blank row absorbs whatever's
-            # left of the section, zeroing it out, instead of being left for the user to compute.
+            # The one remaining blank row absorbs whatever's left of the section (the sheet's own
+            # BALANCE row).
             i = blanks[0]
             final_units.loc[i] = ui.format_volume(remaining)
             final_pct.loc[i] = ui.format_percent(100)
@@ -341,13 +305,10 @@ def render(session):
     st.markdown("**Allocation by section (waterfall -- each row from what's left after the rows "
                 "above it):**\n\n" + "\n".join(remaining_lines))
 
-    # Read-only colored preview: the one thing an editable st.data_editor categorically cannot do,
-    # no matter which columns are involved, is paint a cell's background -- that's true for a
-    # single cell and for a whole row alike. Real per-row color therefore has to live in a second,
-    # read-only table, built the same way Segment Viewer's own (confirmed-working) colored grid is:
-    # a same-shape DataFrame of CSS strings applied via Styler.apply(fn, axis=None). Every column
-    # gets the row's segment color EXCEPT the 4 tracking columns (Volume/Quantity %/Quantity
-    # Units/Owner-Approver), left plain, as asked.
+    # Read-only colored preview: st.data_editor can't paint a cell's background while editable, so
+    # real per-row color lives in a second, read-only table, built the same way as Segment Viewer's
+    # own colored grid (a same-shape DataFrame of CSS strings via Styler.apply(fn, axis=None)).
+    # Every column gets the row's segment color except the 4 tracking columns, left plain.
     preview = frame.copy()
     preview[pct_label] = final_pct
     preview[units_label] = final_units
@@ -365,15 +326,12 @@ def render(session):
     st.dataframe(preview.style.apply(lambda _: highlight, axis=None),
                  hide_index=True, use_container_width=True, key=f"psp_preview_{campaign['id']}")
 
-    # Persist this run's calculated %/Units so the NEXT rerun's grid shows them (see calc_state
-    # above) instead of only updating after a Save reloads from the database.
+    # Persist this run's calculated %/Units and raw widget values for the next rerun.
     st.session_state[calc_key] = {
         offer_ids[i]: {"pct": final_pct.loc[i], "units": final_units.loc[i]} for i in rows.index
     }
-    # Persist what the widget itself held this run, for next run's changed-cell detection.
     st.session_state[prev_key] = new_prev_values
 
-    # Recompute save state from this run's edits, for the Status column on the NEXT rerun.
     def changed(current, saved_values, parser=None):
         flags = []
         for i in rows.index:
