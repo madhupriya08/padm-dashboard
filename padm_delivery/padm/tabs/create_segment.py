@@ -7,14 +7,9 @@ from padm.formulas import TIMES_MAILED_BUCKETS
 
 SCOPE = "create_segment"
 DEFAULT_SOURCES = ["EXPERIAN", "TRANSUNION"]
-# LIFT is restricted to TransUnion only here. NOTE this contradicts the real T_EXPERIAN_MAILFILE /
-# T_TRANSUNION_MAILFILE data dictionaries, which show LIFT_SCORE existing only in
-# T_EXPERIAN_MAILFILE -- T_TRANSUNION_MAILFILE has no LIFT_SCORE column at all. This is a
-# UI-only choice: no DM_PADM_SCORE_RANGE_RULE_1 bands exist for LIFT yet (either bureau), so
-# selecting it will hit "no active score-range rules" until a LIFT row is added there, and even
-# then, VW_PADM_SEGMENT_SOURCE_CANDIDATE's rebuild has no TransUnion+LIFT source branch (since
-# the raw mailfile table has no LIFT_SCORE column to read) -- so a TransUnion+LIFT segment can be
-# created manually here, but will never appear via "Sync governed segments from source."
+# LIFT shown under TransUnion is a UI-only choice -- no score-range rule exists for it yet, and
+# VW_PADM_SEGMENT_SOURCE_CANDIDATE has no TransUnion+LIFT source branch, so a segment created this
+# way will never appear via "Sync governed segments from source."
 SOURCE_SCORE_TYPES = {
     "EXPERIAN": ["VS3", "VS4"],
     "TRANSUNION": ["VS3", "VS4", "LIFT"],
@@ -22,18 +17,12 @@ SOURCE_SCORE_TYPES = {
 NONE = "— none —"
 
 # (form field, label, dropdown field in VW_PADM_SEGMENT_DROPDOWN_60D or fixed options)
-# Trimmed to exactly the fields the Segment Creation spec lists (Bureau Score Type / Range /
-# Source are mandatory fields above, shown separately). CREDIT_BUREAU_MODEL, CREDIT_BUREAU_SCORE,
-# CRS_MODEL, CRS_SCORE belong to Campaign Creation's separate offer-grouping dropdowns, not this tab.
 OPTIONAL_FIELDS = [
     ("ANNUAL_FEE", "Annual Fee", "ANNUAL_FEE"),
     ("NETWORK", "Network", "NETWORK"),
     ("MLA_FLAG", "MLA", ["Y", "N"]),
     ("RISK_SCORE_TYPE", "Risk Score Type", "CRS_MODEL"),
     ("RESPONSE_MODEL_TYPE", "Response Model Type", "RESPONSE_MODEL_TYPE"),
-    # The Segmentation Creation spec lists "Prospect Type (Prospecting, Retargeting)" as its own
-    # field. Backend already supports it (SEGMENT_OPTIONAL_FIELDS in repository.py); only the
-    # form input was missing. Left blank, create_segment() still defaults it to 'ALL'.
     ("PROSPECT_SEGMENT_TYPE", "Prospect Type", ["PROSPECTING", "RETARGETING"]),
 ]
 
@@ -50,8 +39,7 @@ def _text(value):
 
 
 def _offer_label(offers, allocations=None):
-    """An offer can belong to more than one segment (many-to-many) -- when `allocations` is given,
-    appends how many segments it's already on, so picking it for one more is an informed choice."""
+    """When `allocations` is given, appends how many segments an offer is already on."""
     lookup = offers.set_index("CAMPAIGN_OFFER_ID")
     counts = allocations["CAMPAIGN_OFFER_ID"].value_counts().to_dict() if allocations is not None else {}
 
@@ -81,10 +69,6 @@ def _optional_inputs(dropdowns, key, defaults=None, disabled=False):
 def _create_form(session, campaign, offers, allocations, dropdowns):
     locked = campaign["locked"]
     rules = repository.score_range_rules(session)
-    # Union with DEFAULT_SOURCES, not `or` -- source_names() only reflects bureaus already used by
-    # a governed segment or DM_PADM_POPULATION_GROUP_RULE, so a real source (e.g. TRANSUNION) with
-    # no segments yet silently disappeared under the old `or` fallback (which only triggers on a
-    # fully empty list). This guarantees both known sources always show.
     sources = sorted(set(repository.source_names(session)["SOURCE_NAME"].tolist()) | set(DEFAULT_SOURCES))
     all_score_types = sorted(rules["SCORE_TYPE"].dropna().unique().tolist())
 
@@ -96,9 +80,6 @@ def _create_form(session, campaign, offers, allocations, dropdowns):
         st.markdown("**Mandatory fields** (*)")
         c1, c2, c3, c4 = st.columns(4)
         source = c1.selectbox("Prospect Source Bureau *", sources, key="cs_source", disabled=locked)
-        # Score Type options are scoped to the selected Source (SOURCE_SCORE_TYPES); falls back to
-        # every active score type if the source isn't in that mapping. Key includes `source` so the
-        # widget resets cleanly instead of keeping a selection that's no longer valid for this source.
         allowed = SOURCE_SCORE_TYPES.get(source)
         score_types = [t for t in all_score_types if t in allowed] if allowed else all_score_types
         if not score_types:

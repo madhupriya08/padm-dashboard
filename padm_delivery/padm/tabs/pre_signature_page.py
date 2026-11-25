@@ -1,23 +1,9 @@
-"""Pre Signature Page: live ACM-sourced offer data in the Matrix Creation Tool's column order
-and sort, plus 3 tracking fields -- Volume, Quantity, Owner/Approver. Carries forward from the
-previous campaign for a matching offer (by reservation code) until saved here, and persists to a
-real table instead of an Excel file.
-
-Shows Main and Remail together for the same reporting month, when both exist, in one combined
-table (a "Campaign" column tells the rows apart) -- not just whichever single campaign happens to
-be the active one. Saving routes each offer back to its own campaign; a campaign that's APPROVED
-(read-only) has its offers skipped rather than failing the whole save.
-
-Volume and Quantity are both plain per-row fields now -- no shared per-section amount, no
-waterfall. Quantity is one combined entry: type a value ending in "%" for a percentage of that
-row's own Volume (e.g. "45%"), or a plain number/K/MM amount for a flat quantity (e.g. "160k").
-Whichever you type is stored, and the other of percent/units is derived from it and the row's
-Volume when possible. Free text that isn't a clean percent or number (e.g. a cutoff-tiered note)
-is left exactly as typed and doesn't drive the amount check. A row whose Quantity resolves to more
-units than its own Volume is flagged as a validation error rather than accepted silently.
-
-Matrix segment color is shown as an emoji square next to the segment name, since st.data_editor
-can't render real cell background colors in an editable grid."""
+"""Pre Signature Page: live ACM offer data in Matrix Creation Tool column order, plus 3 tracking
+fields -- Volume, Quantity, Owner/Approver -- carried forward from the previous campaign until
+saved here. Shows Main and Remail together for the same month (a "Campaign" column tells rows
+apart); saving routes each offer back to its own campaign, skipping one that's APPROVED. Quantity
+is one combined field: a value ending in "%" is a percentage of that row's Volume, otherwise a flat
+amount -- whichever isn't typed is derived from the other where possible."""
 
 import streamlit as st
 import pandas as pd
@@ -34,8 +20,7 @@ OVER_ALLOCATED_TOLERANCE = 1e-6
 
 
 def _text(value):
-    """None/NaN -> "" ; everything else -> a plain stripped string. Keeps the column's dtype as
-    plain text so Streamlit doesn't infer a numeric column and reject free-text entries."""
+    """None/NaN -> ""; everything else -> a plain stripped string."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ""
     return str(value).strip()
@@ -51,8 +36,7 @@ def _display_text(value, parser, formatter):
 
 
 def _saved_quantity_display(saved_pct, saved_units):
-    """One combined display value for the Quantity column from whichever of the two saved
-    columns is set -- % takes precedence since a clean % was the more deliberate entry."""
+    """Combined Quantity display from whichever saved column is set; % takes precedence."""
     pct_text = _display_text(saved_pct, ui.parse_percent, ui.format_percent)
     if pct_text:
         return pct_text
@@ -88,11 +72,8 @@ def render(session):
         st.info("No ACM offers are snapshotted for this campaign yet.")
         return
     rows = rows.copy()
-    # VW_PADM_SIGNATURE_PAGE_LIVE is grouped by segment as well as offer, so an offer allocated to
-    # more than one segment comes back as more than one row here. Pre Signature Page's tracking
-    # fields are offer-grain, not offer+segment-grain -- collapse to one row per offer before
-    # anything else is keyed off CAMPAIGN_OFFER_ID, otherwise Save ends up writing more than one
-    # "current" row per offer.
+    # VW_PADM_SIGNATURE_PAGE_LIVE groups by segment as well as offer -- collapse to one row per
+    # offer, since these tracking fields are offer-grain, before anything keys off CAMPAIGN_OFFER_ID.
     if "CAMPAIGN_OFFER_ID" in rows.columns:
         rows = rows.drop_duplicates(subset="CAMPAIGN_OFFER_ID", keep="first")
     rows["_SORT"] = [ui.segment_sort_rank(s, d) for s, d in
@@ -102,9 +83,8 @@ def render(session):
 
     current = repository.pre_signature_detail(session, campaign_ids)
     if not current.empty:
-        # Defensive: a prior save from before the dedupe above may have already left more than one
-        # IS_CURRENT row for the same offer -- keep the most recently created one so a read never
-        # hands back a Series where a scalar is expected.
+        # A prior save may have already left more than one IS_CURRENT row for the same offer --
+        # keep the most recent so a read never hands back a Series where a scalar is expected.
         current = current.sort_values("CREATED_TS").drop_duplicates(
             subset="CAMPAIGN_OFFER_ID", keep="last").drop(columns="CREATED_TS")
     current_by_offer = current.set_index("CAMPAIGN_OFFER_ID") if not current.empty else current

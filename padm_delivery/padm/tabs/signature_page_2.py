@@ -1,5 +1,5 @@
-"""Tab 7 -- Signature Page 2 (spec 8): Signature Page + calculated values + population
-description; Run Calculation -> Generate (immutable snapshot) -> Approve / Reject; exports."""
+"""Tab 7 -- Signature Page 2: calculated values + population description; Run Calculation ->
+Generate (immutable snapshot) -> Approve / Reject; exports."""
 
 import streamlit as st
 

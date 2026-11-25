@@ -10,11 +10,8 @@ from padm import formulas, repository, ui, validation
 from padm.formulas import TIMES_MAILED_BUCKETS
 
 SCOPE = "segment_viewer"
-# Selection grid cell colors (priority: BLUE > GREEN > YELLOW -- an unsaved edit always wins over
-# a saved or prior-matched state, since that's the most actionable thing to notice):
-#   BLUE   = this cell differs from what's currently saved (DM_PADM_SELECTION_WORKING) -- unsaved.
-#   GREEN  = this cell matches what's currently saved and is non-zero.
-#   YELLOW = prior campaign's selection was non-zero here, but neither of the above applies.
+# Selection grid cell colors, priority BLUE > GREEN > YELLOW:
+#   BLUE = unsaved edit. GREEN = matches saved, non-zero. YELLOW = prior campaign had a selection here.
 YELLOW = "background-color: #fff3b0"
 GREEN = "background-color: #c6f6c6"
 BLUE = "background-color: #bfdbfe"
@@ -76,13 +73,9 @@ def parse_cde_file(raw_bytes, file_name):
 # ---------------------------------------------------------------------------------------------
 
 def _segment_inputs(session, campaign, segment_id):
-    """Rate Adjustment, Seasonality, Unwind Rate Adjustment, Unit Cost, CPP (spec 7.7).
-
-    Prepopulated from the campaign's latest assumptions for any field that has a campaign-level
-    counterpart (CPP, Unit Cost) -- shown as the starting value, still editable/overridable per
-    segment. Fields with no campaign-level column at all
-    (Rate Adjustment, Seasonality, Unwind Rate Adjustment -- segment-only by schema design) have
-    nothing to inherit, so they still start blank."""
+    """Rate Adjustment, Seasonality, Unwind Rate Adjustment, Unit Cost, CPP. Prepopulated from the
+    campaign's latest assumptions where a campaign-level counterpart exists (CPP, Unit Cost); the
+    segment-only fields have nothing to inherit and start blank."""
     definitions = repository.assumption_definitions(session)
     defs = definitions[definitions["SEGMENT_COLUMN"].notna() & definitions["ENTERED_ON"].isin(["SEGMENT_VIEWER", "BOTH"])
                         & (definitions["ASSUMPTION_LEVEL"] != "CAMPAIGN")]
@@ -104,9 +97,8 @@ def _segment_inputs(session, campaign, segment_id):
             suffix = validation.unit_suffix(d)
             segment_value = stored.get(d["SEGMENT_COLUMN"])
             campaign_column = d.get("CAMPAIGN_COLUMN")
-            # validation.num() (not a bare `is not None` check) because a NULL segment override
-            # comes back from stored.to_dict() as NaN, not None -- `NaN is not None` is True, so a
-            # bare check locks onto NaN and never falls back to the campaign value.
+            # ui.num(), not a bare `is not None` -- a NULL override comes back from to_dict() as
+            # NaN, which `is not None` would treat as set.
             default = segment_value if ui.num(segment_value) is not None else (
                 campaign_values.get(campaign_column) if campaign_column else None)
             values[code] = col.number_input(
@@ -255,10 +247,7 @@ def _selection_section(session, campaign, segment_id):
             st.session_state.pop(state_key, None)
             st.rerun()
 
-    # Styled read-only copy (cell styling isn't available in st.data_editor itself). Priority:
-    # unsaved change (blue) > currently saved, non-zero (green) > prior campaign had a selection
-    # here (yellow). base = what's actually saved right now; state["grid"] = the grid as shown,
-    # including any not-yet-saved edits.
+    # Styled read-only copy, since st.data_editor can't show cell colors itself.
     base_aligned = base.reindex_like(state["grid"]).fillna(0)
     is_unsaved = (state["grid"] - base_aligned).abs() > 1e-9
     is_saved_nonzero = (~is_unsaved) & (base_aligned > 0)
@@ -358,12 +347,8 @@ def _calculated_grids(session, campaign, segment_id, version, pending):
         "booked_post": ("EXPECTED_UNWINDS_SELECTED", "BOOKED_PRE_UNWIND_SELECTED"),
         "booked_post_universe": ("EXPECTED_UNWINDS_UNIVERSE", "BOOKED_PRE_UNWIND_UNIVERSE"),
     }
-    # Side-by-side rows, matching the real Segment.xlsx alignment. Each grid renders at its
-    # natural full width (no per-grid horizontal scrollbar); the CSS below lets the row's
-    # st.columns block overflow instead of clipping each column to an equal share of the page,
-    # so the whole row shares ONE horizontal scrollbar. Vertical scroll stays per-grid (fixed
-    # height via ui.render_grid / grid_height, so it only ever triggers if a grid is unusually
-    # tall).
+    # CSS lets each row's st.columns block overflow (one shared horizontal scrollbar per row)
+    # instead of clipping each grid to an equal column width.
     st.markdown("""
     <style>
     div[class*="st-key-grid_row_"] > div[data-testid="stHorizontalBlock"] {
@@ -437,9 +422,6 @@ def render(session):
     _segment_inputs(session, campaign, segment_id)
     _cde_section(session, campaign, segment)
     st.divider()
-    # RESOLVED: _selection_section's own def (3 params, read directly above) never references
-    # `version` in its body -- confirms the 5-arg call was this transcription's OCR error
-    # (bled in from the next line's _calculated_grids call), not a bug in the real code.
     pending = _selection_section(session, campaign, segment_id)
     _calculated_grids(session, campaign, segment_id, version, pending)
 

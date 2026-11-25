@@ -1,8 +1,5 @@
-"""Tab 2 -- Signature Page (spec 3): ACM-only, read-only starting shell.
-
-CPP is edited on Campaign Assumptions (campaign-level) and Segment Viewer (segment-level
-override) -- not here. See DM_PADM_ASSUMPTION_DEFINITION's CPP row (ASSUMPTION_LEVEL =
-'CAMPAIGN_SEGMENT', ENTERED_ON = 'BOTH')."""
+"""Tab 2 -- Signature Page: ACM-only, read-only starting shell. CPP is edited on Campaign
+Assumptions / Segment Viewer, not here."""
 
 import streamlit as st
 
