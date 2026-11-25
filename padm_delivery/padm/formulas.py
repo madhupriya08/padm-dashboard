@@ -1,9 +1,4 @@
-"""Every PADM formula, in calculation order (spec 7.8).
-
-Mirrors VW_PADM_SEGMENT_CALCULATION_CURRENT -- keep the two in sync. The Segment Viewer uses
-``calculate`` for the Final Version (mail-file quantities replace Selected Quantity) and the
-grid definitions below for display, captions and weighted totals.
-"""
+"""Every PADM formula, in calculation order. Mirrors VW_PADM_SEGMENT_CALCULATION_CURRENT -- keep in sync."""
 
 import numpy as np
 import pandas as pd
@@ -34,13 +29,8 @@ def _col(cells, name, default=0.0):
 
 
 def calculate(cells, selected_quantity=None):
-    """Recomputes every derived column from the input columns.
-
-    Inputs: CDE_VOLUME, EMS_REDUCTION_RATE, SELECTION_PERCENTAGE, BASE_NRR, HISTORICAL_UNWIND_RATE,
-    EFFECTIVE_RATE_ADJUSTMENT, EFFECTIVE_SEASONALITY_REDUCTION, EFFECTIVE_UNWIND_RATE_ADJUSTMENT,
-    EFFECTIVE_CPP, EFFECTIVE_UNIT_COST.
-    ``selected_quantity`` (Series aligned to ``cells``) overrides step 4 -- the Final Version.
-    """
+    """Recomputes every derived column. selected_quantity (Series aligned to cells), if given,
+    overrides the computed Selected Quantity -- the Final Version."""
     out = cells.copy()
     ems = _col(out, "EMS_REDUCTION_RATE", np.nan).fillna(EMS_POC_BLANKET_RATE)
     selection = _col(out, "SELECTION_PERCENTAGE").fillna(0)
@@ -50,32 +40,24 @@ def calculate(cells, selected_quantity=None):
     cpp = _col(out, "EFFECTIVE_CPP", np.nan)
     unit_cost = _col(out, "EFFECTIVE_UNIT_COST", np.nan)
 
-    # 2-3 volume
     out["EMS_REDUCTION_RATE"] = ems
     out["POST_EMS_VOLUME"] = _col(out, "CDE_VOLUME") * (1 - ems)
-    # 4 selected quantity
     if selected_quantity is None:
         out["SELECTED_QUANTITY"] = sql_round(out["POST_EMS_VOLUME"] * selection)
     else:
         out["SELECTED_QUANTITY"] = pd.to_numeric(selected_quantity, errors="coerce").fillna(0)
-    # 5-6 NRR
     out["EFFECTIVE_NRR"] = _col(out, "BASE_NRR", np.nan) * (1 + rate_adj) * (1 - seasonality)
-    # 7 booked pre-unwind (universe + selected)
     out["BOOKED_PRE_UNWIND_UNIVERSE"] = out["POST_EMS_VOLUME"] * out["EFFECTIVE_NRR"]
     out["BOOKED_PRE_UNWIND_SELECTED"] = out["SELECTED_QUANTITY"] * out["EFFECTIVE_NRR"]
-    # 8 effective unwind rate
     out["EFFECTIVE_UNWIND_RATE"] = _col(out, "HISTORICAL_UNWIND_RATE", np.nan) * (1 + unwind_adj)
-    # 9-10 unwinds / post-unwind
     for scope in ("UNIVERSE", "SELECTED"):
         pre = out[f"BOOKED_PRE_UNWIND_{scope}"]
         out[f"EXPECTED_UNWINDS_{scope}"] = pre * out["EFFECTIVE_UNWIND_RATE"]
         out[f"BOOKED_POST_UNWIND_{scope}"] = pre * (1 - out["EFFECTIVE_UNWIND_RATE"])
-    # 11-12 costs
     out["MARKETING_COST_UNIVERSE"] = out["POST_EMS_VOLUME"] * cpp
     out["MARKETING_COST_SELECTED"] = out["SELECTED_QUANTITY"] * cpp
     out["BOOKING_COST_UNIVERSE"] = out["BOOKED_PRE_UNWIND_UNIVERSE"] * unit_cost
     out["BOOKING_COST_SELECTED"] = out["BOOKED_PRE_UNWIND_SELECTED"] * unit_cost
-    # 13-14 CPA (only after marketing cost and booked pre-unwind exist)
     for scope in ("UNIVERSE", "SELECTED"):
         out[f"PRE_UNWIND_CPA_{scope}"] = safe_div(out[f"MARKETING_COST_{scope}"], out[f"BOOKED_PRE_UNWIND_{scope}"])
         out[f"POST_UNWIND_CPA_{scope}"] = safe_div(
@@ -88,11 +70,7 @@ def calculate(cells, selected_quantity=None):
     return out
 
 
-# ---------------------------------------------------------------------------------------------
-# Grid definitions, in calculation order.
-#   key, title, value column, display format, formula caption,
-#   ratio=(numerator columns, denominator columns) for weighted totals, or None (sum)
-# ---------------------------------------------------------------------------------------------
+# (key, title, value column, display format, formula caption, ratio=(numerators, denominators) or None)
 GRIDS = [
     ("mku", "CDE Volume", "CDE_VOLUME", "localized",
      "CDE Volume = loaded CDE volume (Count Distinct EPIN)", None),
@@ -149,9 +127,7 @@ GRIDS = [
      "Selected Booked Post-Unwind = Booked Pre-Unwind x (1 - Effective Unwind Rate)", None),
 ]
 
-# Row groups for the side-by-side layout, matching the Segment.xlsx alignment: each inner list
-# is a set of grid keys (from GRIDS above) shown side by side in one horizontally-scrollable
-# row, in this exact order top to bottom.
+# Grid keys (from GRIDS) grouped into side-by-side display rows.
 GRID_ROWS = [
     ["mku", "post_ems", "selected"],
     ["base_nrr", "eff_nrr", "selected_nrr"],
@@ -172,11 +148,8 @@ def _ordered(pivoted):
 
 
 def pivot_grid(cells, value_col, ratio=None):
-    """Tier x Times Mailed grid with Total row and Total column.
-
-    Sums for additive metrics. For rates/CPAs the totals are weighted:
-    sum(numerators) / sum(denominators). Division by zero -> NaN (rendered '-').
-    """
+    """Tier x Times Mailed grid with Total row/column. Rates/CPAs use weighted totals
+    (sum(numerators) / sum(denominators)); division by zero -> NaN (rendered '-')."""
     if cells.empty:
         return pd.DataFrame()
     cells = cells.copy()

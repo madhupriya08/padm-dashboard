@@ -1,7 +1,5 @@
-"""Input validation driven by DM_PADM_ASSUMPTION_DEFINITION (spec 5.1 / 5.2).
-
-Values are entered in display units (PERCENT = 0-100 style) and stored in fractions.
-"""
+"""Input validation driven by DM_PADM_ASSUMPTION_DEFINITION. Values are entered in display units
+(PERCENT = 0-100 style) and stored as fractions."""
 
 import math
 

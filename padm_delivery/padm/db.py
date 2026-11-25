@@ -1,8 +1,4 @@
-"""Snowflake access helpers. Only padm.repository imports this module.
-
-SQL is written with named placeholders ``%(name)s``; ``_bind`` rewrites each so it's positionally
-formatted into the SQL. Reads are cached for READ_CACHE_TTL_SECONDS and cleared after any write.
-"""
+"""Snowflake access helpers. SQL uses named placeholders %(name)s; reads are cached and cleared on write."""
 
 import re
 from contextlib import contextmanager
@@ -80,8 +76,7 @@ def rows_affected(rows, kind):
 
 @contextmanager
 def transaction(session):
-    """Explicit transaction for multi-statement app-side writes. Not for CALLs -- every
-    SP_PADM_* procedure manages its own transaction."""
+    """Explicit transaction for multi-statement writes -- not for CALLs, procedures manage their own."""
     session.sql("BEGIN").collect()
     try:
         yield
