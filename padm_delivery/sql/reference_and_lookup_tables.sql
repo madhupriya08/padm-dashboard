@@ -86,7 +86,7 @@ ON T.ACM_SEGMENT_NAME = S.ACM_SEGMENT_NAME
 WHEN NOT MATCHED THEN INSERT (ACM_SEGMENT_NAME, PROSPECT_TYPE) VALUES (S.ACM_SEGMENT_NAME, S.PROSPECT_TYPE);
 
 -- Who can open the dashboard (checked against CURRENT_USER() in streamlit_app.py). Seeded empty
--- here -- see 12_seed_dashboard_access_run_once.sql for the actual emails.
+-- here -- see dashboard_access.sql for the actual emails.
 CREATE TABLE IF NOT EXISTS DM_PADM_DASHBOARD_ACCESS
 (
     EMAIL VARCHAR NOT NULL,

@@ -19,16 +19,15 @@ docs/                   data dictionary, lineage notes, reference material
 
 ### 1. Run the SQL
 
-In Snowsight, run every file in `sql/` **in numeric order**, `01_...` through `13_...`, against
-`DB_RISK.RISK_SBX`. Each file is self-contained (its own `USE DATABASE`/`USE SCHEMA`) and says at
-the top whether it's safe to re-run or run-once only — see `sql/README.md` for the full list.
-Three of the thirteen are one-time operations (`10_one_time_fixes_run_once.sql`,
-`12_seed_dashboard_access_run_once.sql`, `13_backfill_..._run_once.sql`) — skip any of those
-you've already run on this schema.
+In Snowsight, run every file in `sql/` **in the order listed in `sql/README.md`** against
+`DB_RISK.RISK_SBX` — the filenames don't sort into run order, so go by that table, not
+alphabetically. Each file is self-contained (its own `USE DATABASE`/`USE SCHEMA`) and says at
+the top whether it's safe to re-run or run-once only. Three of the thirteen are one-time
+operations (`fixes.sql`, `dashboard_access.sql`, `segment_and_assumption_history.sql`) — skip any
+of those you've already run on this schema.
 
-Before running `12_seed_dashboard_access_run_once.sql`, edit it to list the real people who should
-have access (see Access Control below) — it ships with the 6 names from this engagement's own
-setup as an example.
+Before running `dashboard_access.sql`, edit it to list the real people who should have access (see
+Access Control below) — it ships with the 6 names from this engagement's own setup as an example.
 
 ### 2. Create the Streamlit app
 
