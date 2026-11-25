@@ -288,19 +288,53 @@ def signature_live(session, campaign_id):
     )
 
 
-def pre_signature_detail(session, campaign_id):
-    """Current Total Available Volume / Quantity % / Quantity (units) / Owner-Approver for this
-    campaign's offers. CREATED_TS is included so a caller can pick the most recent row if more than
-    one IS_CURRENT row ever exists for the same offer (padm/tabs/pre_signature_page.py guards
-    against this)."""
+def sibling_campaign(session, campaign_id):
+    """The other campaign type (MAIN<->REMAIL) for the same reporting month as campaign_id, if one
+    exists -- lets Pre Signature Page show Main and Remail together. One-row frame or empty."""
+    return df(
+        session,
+        f"""
+        SELECT P.CAMPAIGN_ID, P.CAMPAIGN_DISPLAY_NAME, P.CAMPAIGN_TYPE, P.STATUS
+        FROM {SCHEMA}.DM_PADM_CAMPAIGN_1 AS C
+        JOIN {SCHEMA}.DM_PADM_CAMPAIGN_1 AS P
+          ON P.REPORTING_MONTH = C.REPORTING_MONTH AND P.CAMPAIGN_TYPE <> C.CAMPAIGN_TYPE
+        WHERE C.CAMPAIGN_ID = %(c)s
+        """,
+        {"c": campaign_id},
+    )
+
+
+def signature_live_for_month(session, campaign_ids):
+    """Like signature_live(), but across more than one campaign at once (Pre Signature Page shows
+    Main + Remail together for the same month) -- CAMPAIGN_ID in the output tells rows apart."""
+    ids = list(campaign_ids)
+    placeholders = ", ".join(["?"] * len(ids))
+    return df(
+        session,
+        f"""
+        SELECT * FROM {SCHEMA}.VW_PADM_SIGNATURE_PAGE_LIVE WHERE CAMPAIGN_ID IN ({placeholders})
+        ORDER BY ANNUAL_FEE, POPULATION_DESCRIPTION NULLS LAST, SEGMENT_DESCRIPTION NULLS LAST, CAMPAIGN_OFFER_ID
+        """,
+        ids,
+    )
+
+
+def pre_signature_detail(session, campaign_ids):
+    """Current Total Available Volume / Quantity / Owner-Approver for these campaigns' offers.
+    campaign_ids: an iterable of one or more campaign ids (Pre Signature Page shows Main + Remail
+    together when both exist for the same month). CREATED_TS is included so a caller can pick the
+    most recent row if more than one IS_CURRENT row ever exists for the same offer
+    (padm/tabs/pre_signature_page.py guards against this)."""
+    ids = list(campaign_ids)
+    placeholders = ", ".join(["?"] * len(ids))
     return df(
         session,
         f"""
         SELECT CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY_PERCENTAGE, QUANTITY_UNITS,
                OWNER_APPROVER, CREATED_TS
-        FROM {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL WHERE CAMPAIGN_ID = %(c)s AND IS_CURRENT = TRUE
+        FROM {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL WHERE CAMPAIGN_ID IN ({placeholders}) AND IS_CURRENT = TRUE
         """,
-        {"c": campaign_id},
+        ids,
     )
 
 
@@ -324,44 +358,60 @@ def previous_pre_signature_detail(session, campaign_id):
     )
 
 
-def save_pre_signature_detail(session, campaign_id, rows, reason):
-    """rows: [{CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY_PERCENTAGE, QUANTITY_UNITS,
-    OWNER_APPROVER}, ...]. Soft-versions: retires the current row for each offer, inserts a new one.
-    All new rows go in as one INSERT -- one row per offer in a Python loop meant one Snowflake
-    round-trip per offer, which is what made Save slow for a campaign with many offers."""
-    _assert_editable(session, campaign_id)
+def save_pre_signature_detail(session, rows, reason):
+    """rows: [{CAMPAIGN_ID, CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY_PERCENTAGE,
+    QUANTITY_UNITS, OWNER_APPROVER}, ...]. Rows can span more than one campaign (Pre Signature Page
+    saves Main + Remail together). Soft-versions per offer: retires the current row, inserts a new
+    one. Grouped by CAMPAIGN_ID so a campaign that's APPROVED (read-only) is skipped rather than
+    failing the whole save -- the return message says how many offers were skipped, if any."""
     if not rows:
         return "Nothing to save."
-    with transaction(session):
-        offer_ids = [str(r["CAMPAIGN_OFFER_ID"]) for r in rows]
-        exec_sql(
-            session,
-            f"""
-            UPDATE {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL
-            SET IS_CURRENT = FALSE, VALID_TO_TS = CURRENT_TIMESTAMP()
-            WHERE CAMPAIGN_ID = ? AND CAMPAIGN_OFFER_ID IN ({", ".join(["?"] * len(offer_ids))}) AND IS_CURRENT = TRUE
-            """,
-            [campaign_id, *offer_ids],
-        )
-        # UUID_STRING() is refused inside a VALUES(...) clause by Snowflake (a recurring issue in
-        # this codebase, fixed the same way at other call sites) -- a SELECT list is fine, so each
-        # row is its own SELECT, combined with UNION ALL into one INSERT.
-        select_rows = " UNION ALL ".join(["SELECT UUID_STRING(), ?, ?, ?, ?, ?, ?, TRUE, ?"] * len(rows))
-        binds = []
-        for r in rows:
-            binds += [campaign_id, r["CAMPAIGN_OFFER_ID"], r["TOTAL_AVAILABLE_VOLUME"],
-                      r["QUANTITY_PERCENTAGE"], r["QUANTITY_UNITS"], r["OWNER_APPROVER"], reason]
-        exec_sql(
-            session,
-            f"""
-            INSERT INTO {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL
-                (PRE_SIGNATURE_DETAIL_ID, CAMPAIGN_ID, CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME,
-                 QUANTITY_PERCENTAGE, QUANTITY_UNITS, OWNER_APPROVER, IS_CURRENT, CHANGE_REASON)
-            {select_rows}
-            """,
-            binds,
-        )
-    return f"Saved tracking fields for {len(rows)} offer(s)."
+    by_campaign = {}
+    for r in rows:
+        by_campaign.setdefault(r["CAMPAIGN_ID"], []).append(r)
+
+    saved_count, skipped_count = 0, 0
+    for campaign_id, campaign_rows in by_campaign.items():
+        status = campaign_status(session, campaign_id)
+        if status is None or status == READ_ONLY_STATUS:
+            skipped_count += len(campaign_rows)
+            continue
+        with transaction(session):
+            offer_ids = [str(r["CAMPAIGN_OFFER_ID"]) for r in campaign_rows]
+            exec_sql(
+                session,
+                f"""
+                UPDATE {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL
+                SET IS_CURRENT = FALSE, VALID_TO_TS = CURRENT_TIMESTAMP()
+                WHERE CAMPAIGN_ID = ? AND CAMPAIGN_OFFER_ID IN ({", ".join(["?"] * len(offer_ids))}) AND IS_CURRENT = TRUE
+                """,
+                [campaign_id, *offer_ids],
+            )
+            # UUID_STRING() is refused inside a VALUES(...) clause by Snowflake (a recurring issue
+            # in this codebase, fixed the same way at other call sites) -- a SELECT list is fine, so
+            # each row is its own SELECT, combined with UNION ALL into one INSERT.
+            select_rows = " UNION ALL ".join(
+                ["SELECT UUID_STRING(), ?, ?, ?, ?, ?, ?, TRUE, ?"] * len(campaign_rows))
+            binds = []
+            for r in campaign_rows:
+                binds += [campaign_id, r["CAMPAIGN_OFFER_ID"], r["TOTAL_AVAILABLE_VOLUME"],
+                          r["QUANTITY_PERCENTAGE"], r["QUANTITY_UNITS"], r["OWNER_APPROVER"], reason]
+            exec_sql(
+                session,
+                f"""
+                INSERT INTO {SCHEMA}.DM_PADM_PRE_SIGNATURE_DETAIL
+                    (PRE_SIGNATURE_DETAIL_ID, CAMPAIGN_ID, CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME,
+                     QUANTITY_PERCENTAGE, QUANTITY_UNITS, OWNER_APPROVER, IS_CURRENT, CHANGE_REASON)
+                {select_rows}
+                """,
+                binds,
+            )
+        saved_count += len(campaign_rows)
+
+    if skipped_count:
+        return (f"Saved tracking fields for {saved_count} offer(s). "
+                f"Skipped {skipped_count} offer(s) on a campaign that's read-only (approved).")
+    return f"Saved tracking fields for {saved_count} offer(s)."
 
 
 def snapshot_versions(session, campaign_id):

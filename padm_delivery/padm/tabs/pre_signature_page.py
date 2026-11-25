@@ -1,46 +1,37 @@
 """Pre Signature Page: live ACM-sourced offer data in the Matrix Creation Tool's column order
-and sort, plus 4 tracking fields -- Total Available Volume, Quantity %, Quantity (units),
-Owner/Approver. Carries forward from the previous campaign for a matching offer (by reservation
-code) until saved here, and persists to a real table instead of an Excel file.
+and sort, plus 3 tracking fields -- Volume, Quantity, Owner/Approver. Carries forward from the
+previous campaign for a matching offer (by reservation code) until saved here, and persists to a
+real table instead of an Excel file.
 
-Total Available Volume is one shared number per segment section, matching the Matrix tool's
-merged-cell layout. st.data_editor can't merge cells, so it gets its own small editor with exactly
-one row per section; the main offer grid shows that section's resolved volume read-only.
+Shows Main and Remail together for the same reporting month, when both exist, in one combined
+table (a "Campaign" column tells the rows apart) -- not just whichever single campaign happens to
+be the active one. Saving routes each offer back to its own campaign; a campaign that's APPROVED
+(read-only) has its offers skipped rather than failing the whole save.
 
-Quantity % and Quantity (Units) are linked within each section, in row order. Quantity % is always a
-share of the section's own Total Available Volume, so percentages across a section's rows are
-directly comparable and should add up to 100% (or less, if some volume is left unallocated).
-Quantity (Units) is a waterfall matching the Matrix tool's own layout (its "BALANCE" rows and
-approximate "~228K"-style remainders are calculated leftovers, not typed numbers): each row's units
-are a straight subtraction from whatever volume is left after the rows above it. Units are the
-primary input; a clean % resolves to units against the section's total (not what's left). Whichever
-cell was just edited wins and recalculates its counterpart, even when a row already has both filled in.
-Free text (e.g. a cutoff-tiered note like "100% (605-645) & 25% BAU volume (646+)") is left as
-typed and doesn't consume any of the running total -- PADM has no population-split data for that
-kind of entry, so it's flagged rather than calculated. The one remaining blank row in a section
-absorbs whatever's left, matching the sheet's own BALANCE row. Entries that already exceed a
-section's volume are flagged as a validation error rather than accepted silently.
+Volume and Quantity are both plain per-row fields now -- no shared per-section amount, no
+waterfall. Quantity is one combined entry: type a value ending in "%" for a percentage of that
+row's own Volume (e.g. "45%"), or a plain number/K/MM amount for a flat quantity (e.g. "160k").
+Whichever you type is stored, and the other of percent/units is derived from it and the row's
+Volume when possible. Free text that isn't a clean percent or number (e.g. a cutoff-tiered note)
+is left exactly as typed and doesn't drive the amount check. A row whose Quantity resolves to more
+units than its own Volume is flagged as a validation error rather than accepted silently.
 
-Two tables: a plain editable grid, and a read-only colored preview below it. st.data_editor can't
-show per-cell or per-row background colors while editable, so the grid carries an emoji square
-approximating each row's Matrix segment color instead; the preview colors the whole row with the
-real segment hex color, using the same Styler pattern as Segment Viewer."""
+Matrix segment color is shown as an emoji square next to the segment name, since st.data_editor
+can't render real cell background colors in an editable grid."""
 
-from collections import Counter
-
-import pandas as pd
 import streamlit as st
+import pandas as pd
 
 from padm import repository, ui
 
 SCOPE = "pre_signature_page"
 NEW_COLUMNS = ["TOTAL_AVAILABLE_VOLUME", "QUANTITY_PERCENTAGE", "QUANTITY_UNITS", "OWNER_APPROVER"]
-NEW_LABELS = {
-    "TOTAL_AVAILABLE_VOLUME": "Total Available Volume",
-    "QUANTITY_PERCENTAGE": "Quantity %",
-    "QUANTITY_UNITS": "Quantity (Units)",
-    "OWNER_APPROVER": "Owner/Approver",
-}
+VOL_LABEL = "Volume"
+QTY_LABEL = "Quantity"
+OWNER_LABEL = "Owner/Approver"
+CAMPAIGN_LABEL = "Campaign"
+OVER_ALLOCATED_TOLERANCE = 1e-6
+
 
 def _text(value):
     """None/NaN -> "" ; everything else -> a plain stripped string. Keeps the column's dtype as
@@ -59,24 +50,46 @@ def _display_text(value, parser, formatter):
     return formatter(parsed) if parsed is not None else str(value).strip()
 
 
+def _saved_quantity_display(saved_pct, saved_units):
+    """One combined display value for the Quantity column from whichever of the two saved
+    columns is set -- % takes precedence since a clean % was the more deliberate entry."""
+    pct_text = _display_text(saved_pct, ui.parse_percent, ui.format_percent)
+    if pct_text:
+        return pct_text
+    return _display_text(saved_units, ui.parse_volume, ui.format_volume)
+
+
 def render(session):
     st.header("Pre Signature Page")
     campaign = ui.require_campaign(session)
     if campaign is None:
         return
     ui.show_flash(SCOPE)
-    st.caption(f"{campaign['name']} · ACM offer data in the Matrix Creation Tool's column order, plus "
-               "Total Available Volume / Quantity % / Quantity (Units) / Owner-Approver -- carried "
-               "forward from the previous campaign for a matching offer (by reservation code) until "
-               "saved here. K/MM shorthand accepted (160k, 2.7mm, 165,000).")
 
-    rows = repository.signature_live(session, campaign["id"])
+    sibling = repository.sibling_campaign(session, campaign["id"])
+    campaign_type_by_id = {campaign["id"]: "Main" if campaign.get("type", "MAIN") == "MAIN" else "Remail"}
+    campaign_ids = [campaign["id"]]
+    if not sibling.empty:
+        sib = sibling.iloc[0]
+        campaign_ids.append(sib["CAMPAIGN_ID"])
+        campaign_type_by_id[sib["CAMPAIGN_ID"]] = "Main" if sib["CAMPAIGN_TYPE"] == "MAIN" else "Remail"
+        st.caption(f"{campaign['name']} -- also showing {sib['CAMPAIGN_DISPLAY_NAME']} "
+                   f"({sib['STATUS']}) for the same month.")
+    else:
+        st.caption(f"{campaign['name']} -- no Main/Remail sibling campaign exists for this month yet.")
+    st.caption("ACM offer data in the Matrix Creation Tool's column order, plus Volume / Quantity / "
+               "Owner-Approver -- carried forward from the previous campaign for a matching offer "
+               "(by reservation code) until saved here. K/MM shorthand accepted (160k, 2.7mm, 165,000). "
+               "Quantity: type a value ending in % for a percentage of that row's Volume, or a plain "
+               "number/K/MM for a flat amount.")
+
+    rows = repository.signature_live_for_month(session, campaign_ids)
     if rows.empty:
         st.info("No ACM offers are snapshotted for this campaign yet.")
         return
     rows = rows.copy()
     # VW_PADM_SIGNATURE_PAGE_LIVE is grouped by segment as well as offer, so an offer allocated to
-    # more than one segment comes back as more than one row here. Pre Signature Page's 4 tracking
+    # more than one segment comes back as more than one row here. Pre Signature Page's tracking
     # fields are offer-grain, not offer+segment-grain -- collapse to one row per offer before
     # anything else is keyed off CAMPAIGN_OFFER_ID, otherwise Save ends up writing more than one
     # "current" row per offer.
@@ -86,10 +99,8 @@ def render(session):
                       zip(rows.get("ACM_SEGMENT", ""), rows.get("SEGMENT_DESCRIPTION", ""))]
     sort_cols = [c for c in ["_SORT", "CREDIT_BUREAU_SCORE", "TEST_TYPE"] if c in rows.columns]
     rows = rows.sort_values(sort_cols).drop(columns="_SORT").reset_index(drop=True)
-    rows["_SECTION"] = [ui.segment_color(s, d) or "none" for s, d in
-                         zip(rows.get("ACM_SEGMENT", ""), rows.get("SEGMENT_DESCRIPTION", ""))]
 
-    current = repository.pre_signature_detail(session, campaign["id"])
+    current = repository.pre_signature_detail(session, campaign_ids)
     if not current.empty:
         # Defensive: a prior save from before the dedupe above may have already left more than one
         # IS_CURRENT row for the same offer -- keep the most recently created one so a read never
@@ -98,8 +109,13 @@ def render(session):
             subset="CAMPAIGN_OFFER_ID", keep="last").drop(columns="CREATED_TS")
     current_by_offer = current.set_index("CAMPAIGN_OFFER_ID") if not current.empty else current
 
-    prior = repository.previous_pre_signature_detail(session, campaign["id"])
-    prior_by_code = prior.set_index("OFFER_RESERVATION_CODE") if not prior.empty else prior
+    # Each active campaign has its own "previous campaign" (same type, prior month) -- look each up
+    # separately and combine, keyed by OFFER_RESERVATION_CODE.
+    prior_frames = [repository.previous_pre_signature_detail(session, cid) for cid in campaign_ids]
+    prior_frames = [p for p in prior_frames if not p.empty]
+    prior = pd.concat(prior_frames, ignore_index=True) if prior_frames else pd.DataFrame()
+    prior_by_code = (prior.drop_duplicates(subset="OFFER_RESERVATION_CODE", keep="last")
+                      .set_index("OFFER_RESERVATION_CODE")) if not prior.empty else prior
 
     def value_for(i, col):
         offer_id = rows.loc[i, "CAMPAIGN_OFFER_ID"]
@@ -114,79 +130,6 @@ def render(session):
     for col in NEW_COLUMNS:
         saved[col] = [value_for(i, col) for i in rows.index]
 
-    # Sections in display order (first occurrence), each a group of offer rows sharing one Matrix
-    # segment color -- where the Matrix tool shows one merged Available Volume cell.
-    section_keys = list(dict.fromkeys(rows["_SECTION"]))
-    section_rows = {key: rows.index[rows["_SECTION"] == key] for key in section_keys}
-
-    def _section_names(key):
-        names = sorted({str(s).strip() for s in rows.loc[section_rows[key], "ACM_SEGMENT"].dropna()
-                         if str(s).strip()})
-        return ", ".join(names) if names else "(uncategorized)"
-
-    # Two sections can share the same segment name text (e.g. an MLA-flagged EXPANSION offer gets
-    # its own Matrix color, distinct from plain EXPANSION, per ui._SEGMENT_COLOR_CHAIN) -- tag the
-    # label so they don't read as a duplicate in the UI.
-    _base_labels = {key: _section_names(key) for key in section_keys}
-    _label_counts = Counter(_base_labels.values())
-
-    def section_label(key):
-        label = _base_labels[key]
-        if _label_counts[label] > 1:
-            descs = {str(d).strip().lower() for d in
-                      rows.loc[section_rows[key], "SEGMENT_DESCRIPTION"].dropna()}
-            if any("mla" in d for d in descs):
-                return f"{label} (MLA)"
-        return label
-
-    def section_saved_volume(key):
-        for i in section_rows[key]:
-            value = ui.num(saved.loc[i, "TOTAL_AVAILABLE_VOLUME"])
-            if value is not None:
-                return value
-        return None
-
-    vol_label = NEW_LABELS["TOTAL_AVAILABLE_VOLUME"]
-    locked = campaign["locked"]
-
-    st.subheader("Total Available Volume by section")
-    st.caption("One row per segment section (as in the Matrix tool's merged Available Volume cell) -- "
-               "enter it once here and it applies to every offer in that section below.")
-    section_frame = pd.DataFrame(
-        {"Segment Section": [section_label(k) for k in section_keys],
-         vol_label: [ui.format_volume(section_saved_volume(k)) for k in section_keys]},
-        index=section_keys,
-    )
-    section_edited = st.data_editor(
-        section_frame, hide_index=True, use_container_width=True,
-        disabled=["Segment Section"],
-        column_config={vol_label: st.column_config.TextColumn(
-            vol_label, help="K/MM shorthand accepted (160k, 2.7mm, 165,000).")},
-        key=f"psp_section_editor_{campaign['id']}",
-    )
-    section_volume = {k: ui.parse_volume(section_edited.loc[k, vol_label]) for k in section_keys}
-    resolved_volume = rows["_SECTION"].map(section_volume)
-
-    offer_ids = [str(rows.loc[i, "CAMPAIGN_OFFER_ID"]) for i in rows.index]
-
-    # Quantity %/Units auto-fill is seeded back in from session_state too, so the cell you didn't
-    # type into shows the calculated value right away instead of only after a Save.
-    calc_key = f"psp_calc_{campaign['id']}"
-    calc_state = st.session_state.get(calc_key, {})
-
-    # What the %/Units cells held last run, used below to detect which one was just edited.
-    # Comparing against `frame` (what we're about to display) doesn't work: st.data_editor keeps
-    # re-asserting whatever was last typed into a cell on every rerun regardless of the new data
-    # passed in, so once both % and Units have been typed into at different times, both would look
-    # permanently "changed" against any recalculated frame. Comparing against the widget's own
-    # previous output avoids that.
-    prev_key = f"psp_prev_values_{campaign['id']}"
-    prev_values = st.session_state.get(prev_key, {})
-
-    # Total Available Volume is entered once per section (above) and read-only here -- shown on
-    # only the first row of each section (like the Matrix tool's merged cell).
-    first_row_of_section = {key: section_rows[key][0] for key in section_keys}
-
     # PROGRAM_CODE's source column may come back as PROGRAM instead, depending on how the view's
     # alias was written in Snowsight -- check both names rather than assuming one.
     PROGRAM_ALIASES = {"PROGRAM_CODE": ("PROGRAM_CODE", "PROGRAM")}
@@ -198,6 +141,7 @@ def render(session):
         return None
 
     frame = pd.DataFrame(index=rows.index)
+    frame[CAMPAIGN_LABEL] = [campaign_type_by_id.get(rows.loc[i, "CAMPAIGN_ID"], "") for i in rows.index]
     for source, label in ui.MATRIX_COLUMNS:
         frame[label] = _matrix_source(source)
     # Matrix segment color as an emoji square, since the editable grid can't show real cell colors.
@@ -207,158 +151,74 @@ def render(session):
             return (f"{emoji} " if emoji else "") + _text(s)
         frame["Segment"] = [_segment_cell(s, d) for s, d in
                              zip(rows.get("ACM_SEGMENT", ""), rows.get("SEGMENT_DESCRIPTION", ""))]
-    frame[vol_label] = [ui.format_volume(resolved_volume.loc[i])
-                         if i == first_row_of_section[rows.loc[i, "_SECTION"]] else ""
-                         for i in rows.index]
-    frame[NEW_LABELS["QUANTITY_PERCENTAGE"]] = [
-        calc_state.get(oid, {}).get("pct", _display_text(saved.loc[i, "QUANTITY_PERCENTAGE"],
-                                                           ui.parse_percent, ui.format_percent))
-        for i, oid in zip(rows.index, offer_ids)]
-    frame[NEW_LABELS["QUANTITY_UNITS"]] = [
-        calc_state.get(oid, {}).get("units", _display_text(saved.loc[i, "QUANTITY_UNITS"],
-                                                             ui.parse_volume, ui.format_volume))
-        for i, oid in zip(rows.index, offer_ids)]
-    frame[NEW_LABELS["OWNER_APPROVER"]] = saved["OWNER_APPROVER"].map(_text)
+    frame[VOL_LABEL] = saved["TOTAL_AVAILABLE_VOLUME"].map(ui.format_volume)
+    frame[QTY_LABEL] = [_saved_quantity_display(saved.loc[i, "QUANTITY_PERCENTAGE"],
+                                                 saved.loc[i, "QUANTITY_UNITS"]) for i in rows.index]
+    frame[OWNER_LABEL] = saved["OWNER_APPROVER"].map(_text)
 
     st.subheader("Offers")
     locked = campaign["locked"]
     reason = ui.reason_input(f"psp_reason_{campaign['id']}", disabled=locked)
-    pct_label, units_label = NEW_LABELS["QUANTITY_PERCENTAGE"], NEW_LABELS["QUANTITY_UNITS"]
-    owner_label = NEW_LABELS["OWNER_APPROVER"]
-    editable_cols = {pct_label, units_label, owner_label}
+    editable_cols = {VOL_LABEL, QTY_LABEL, OWNER_LABEL}
     edited = st.data_editor(
         frame, hide_index=True, use_container_width=True,
         disabled=[c for c in frame.columns if c not in editable_cols],
         column_config={
-            vol_label: st.column_config.TextColumn(vol_label, help="Set above, one per section."),
-            pct_label: st.column_config.TextColumn(
-                pct_label, help="Share of this section's Total Available Volume -- a section's "
-                "percentages should add up to 100% (or less, if volume is left unallocated)."),
-            units_label: st.column_config.TextColumn(units_label),
-            owner_label: st.column_config.TextColumn(owner_label),
+            VOL_LABEL: st.column_config.TextColumn(
+                VOL_LABEL, help="K/MM shorthand accepted (160k, 2.7mm, 165,000)."),
+            QTY_LABEL: st.column_config.TextColumn(
+                QTY_LABEL, help="A value ending in % for a percentage of this row's Volume (e.g. 45%), "
+                "or a plain number/K/MM for a flat amount (e.g. 160k)."),
+            OWNER_LABEL: st.column_config.TextColumn(OWNER_LABEL),
         },
         key=f"psp_editor_{campaign['id']}",
     )
 
-    # Quantity % and Quantity (Units) waterfall down each section in row order: each row's % is
-    # relative to whatever volume is left after the rows above it, not the section's original
-    # total. Units are the primary input (a straight subtraction from what's left); a clean %
-    # resolves to units against the current remaining amount. Whichever cell was just edited wins
-    # when a row already has both filled in.
-    final_pct, final_units = edited[pct_label].copy(), edited[units_label].copy()
-    new_prev_values = {}
-    OVER_ALLOCATED_TOLERANCE = 1e-6
-    remaining_lines = []
+    final_pct, final_units = pd.Series(index=rows.index, dtype=object), pd.Series(index=rows.index, dtype=object)
     over_allocated_errors = []
-    for key in section_keys:
-        idx = section_rows[key]
-        volume = ui.num(section_volume.get(key))
-        remaining = volume
-        skip = False
-        blanks = []
-        for i in idx:
-            oid = offer_ids[i]
-            pct_text, units_text = _text(edited.loc[i, pct_label]), _text(edited.loc[i, units_label])
-            pct = ui.parse_percent(pct_text)
-            units = ui.parse_volume(units_text)
-            prev = prev_values.get(oid, {})
-            pct_changed = pct_text != prev.get("pct", _text(frame.loc[i, pct_label]))
-            units_changed = units_text != prev.get("units", _text(frame.loc[i, units_label]))
-            new_prev_values[oid] = {"pct": pct_text, "units": units_text}
-
-            if pct_text == "" and units_text == "":
-                blanks.append(i)
-                continue
-            if pct is None and units is None:
-                skip = True  # free text -- doesn't consume any of the running total
-                continue
-            if remaining is None:
-                # No section volume set yet -- canonical-format what's typed, no waterfall math.
-                if pct is not None:
-                    final_pct.loc[i] = ui.format_percent(pct)
-                if units is not None:
-                    final_units.loc[i] = ui.format_volume(units)
-                continue
-
-            if units_changed and not pct_changed and units is not None:
-                row_units = units
-            elif pct_changed and not units_changed and pct is not None:
+    for i in rows.index:
+        volume = ui.num(edited.loc[i, VOL_LABEL])
+        qty_text = _text(edited.loc[i, QTY_LABEL])
+        if qty_text == "":
+            continue
+        is_percent = "%" in qty_text
+        pct = ui.parse_percent(qty_text) if is_percent else None
+        units = None if is_percent else ui.parse_volume(qty_text)
+        if pct is None and units is None:
+            continue  # free text -- doesn't consume any of the row's volume, left as typed
+        if pct is not None:
+            final_pct.loc[i] = ui.format_percent(pct)
+            if volume is not None:
                 row_units = volume * pct / 100
-            elif units is not None:
-                row_units = units
-            else:
-                row_units = volume * pct / 100
-            final_units.loc[i] = ui.format_volume(row_units)
-            final_pct.loc[i] = ui.format_percent(row_units / volume * 100) if volume else ui.format_percent(0)
-            remaining -= row_units
-
-        if not skip and len(blanks) == 1 and remaining is not None:
-            # The one remaining blank row absorbs whatever's left of the section (the sheet's own
-            # BALANCE row).
-            i = blanks[0]
-            final_units.loc[i] = ui.format_volume(remaining)
-            final_pct.loc[i] = ui.format_percent(100)
-            remaining = 0.0
-
-        if volume is None:
-            remaining_lines.append(f"- {section_label(key)}: set a Total Available Volume above to allocate.")
-        elif skip:
-            remaining_lines.append(f"- {section_label(key)}: can't total (contains free-text entries).")
-        elif remaining is not None and remaining < -OVER_ALLOCATED_TOLERANCE:
-            over_units = ui.format_volume(-remaining)
-            remaining_lines.append(f"- ⚠️ {section_label(key)}: OVER-ALLOCATED by {over_units} units "
-                                    f"(of {ui.format_volume(volume)} available).")
-            over_allocated_errors.append(
-                f"**{section_label(key)}**: entries exceed this section's Total Available Volume "
-                f"by {over_units} units. Reduce one or more entries.")
+                final_units.loc[i] = ui.format_volume(row_units)
         else:
-            allocated = volume - remaining
-            remaining_lines.append(f"- {section_label(key)}: {ui.format_volume(allocated)} of "
-                                    f"{ui.format_volume(volume)} allocated, {ui.format_volume(remaining)} remaining.")
+            final_units.loc[i] = ui.format_volume(units)
+            if volume:
+                final_pct.loc[i] = ui.format_percent(units / volume * 100)
+        row_units = ui.parse_volume(final_units.loc[i]) if pd.notna(final_units.loc[i]) else None
+        if volume is not None and row_units is not None and row_units - volume > OVER_ALLOCATED_TOLERANCE:
+            code = rows.loc[i, "OFFER_RESERVATION_CODE"] if "OFFER_RESERVATION_CODE" in rows.columns else i
+            over_units = ui.format_volume(row_units - volume)
+            over_allocated_errors.append(
+                f"**{code}**: Quantity exceeds this row's Volume by {over_units} units.")
+
     if over_allocated_errors:
         st.error("\n\n".join(over_allocated_errors))
-    st.markdown("**Allocation by section** (Quantity % = share of the section total; Quantity (Units) "
-                "= a waterfall, each row from what's left after the rows above it):\n\n" + "\n".join(remaining_lines))
-
-    # Read-only colored preview: st.data_editor can't paint a cell's background while editable, so
-    # real per-row color lives in a second, read-only table, built the same way as Segment Viewer's
-    # own colored grid (a same-shape DataFrame of CSS strings via Styler.apply(fn, axis=None)).
-    # Every column gets the row's segment color except the 4 tracking columns, left plain.
-    preview = frame.copy()
-    preview[pct_label] = final_pct
-    preview[units_label] = final_units
-    preview[owner_label] = edited[owner_label]
-    uncolored = {vol_label, pct_label, units_label, owner_label}
-    highlight = pd.DataFrame("", index=preview.index, columns=preview.columns)
-    for i in rows.index:
-        base_hex = rows.loc[i, "_SECTION"]
-        if base_hex != "none":
-            for col in preview.columns:
-                if col not in uncolored:
-                    highlight.loc[i, col] = f"background-color: {base_hex}"
-    st.caption("Preview (read-only) -- whole row colored by Matrix segment, except the 4 tracking "
-               "columns on the right.")
-    st.dataframe(preview.style.apply(lambda _: highlight, axis=None),
-                 hide_index=True, use_container_width=True, key=f"psp_preview_{campaign['id']}")
-
-    # Persist this run's calculated %/Units and raw widget values for the next rerun.
-    st.session_state[calc_key] = {
-        offer_ids[i]: {"pct": final_pct.loc[i], "units": final_units.loc[i]} for i in rows.index
-    }
-    st.session_state[prev_key] = new_prev_values
 
     if st.button("Save tracking fields", type="primary", icon=":material/save:",
                   disabled=locked, key=f"psp_save_{campaign['id']}"):
         if ui.require_reason(reason):
             payload = [
                 {
+                    "CAMPAIGN_ID": rows.loc[i, "CAMPAIGN_ID"],
                     "CAMPAIGN_OFFER_ID": rows.loc[i, "CAMPAIGN_OFFER_ID"],
-                    "TOTAL_AVAILABLE_VOLUME": ui.num(resolved_volume.loc[i]),
-                    "QUANTITY_PERCENTAGE": final_pct.loc[i],
-                    "QUANTITY_UNITS": final_units.loc[i],
-                    "OWNER_APPROVER": edited.loc[i, owner_label],
+                    "TOTAL_AVAILABLE_VOLUME": ui.num(edited.loc[i, VOL_LABEL]),
+                    "QUANTITY_PERCENTAGE": final_pct.loc[i] if pd.notna(final_pct.loc[i]) else None,
+                    "QUANTITY_UNITS": final_units.loc[i] if pd.notna(final_units.loc[i]) else
+                        (_text(edited.loc[i, QTY_LABEL]) or None),
+                    "OWNER_APPROVER": edited.loc[i, OWNER_LABEL],
                 }
                 for i in rows.index
             ]
             ui.run_action(SCOPE, lambda: repository.save_pre_signature_detail(
-                session, campaign["id"], payload, reason.strip()))
+                session, payload, reason.strip()))

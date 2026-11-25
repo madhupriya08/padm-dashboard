@@ -1,4 +1,8 @@
-"""Tab 1 -- Campaign Creation (spec 2): discover ACM offers, create/activate, select, status flow."""
+"""Tab 1 -- Campaign Creation (spec 2): discover ACM offers, create/activate, select, status flow.
+
+Main and Remail are created together for one chosen month -- there's no separate Campaign Type
+selector; whichever of the two don't already exist for that month are created in a single action
+(each from its own ACM data where it exists, or as a placeholder shell otherwise)."""
 
 import datetime as dt
 
@@ -7,81 +11,86 @@ import streamlit as st
 from padm import repository, ui
 
 SCOPE = "campaign_creation"
-TYPE_OPTIONS = {"PRIMARY (MAIN)": "MAIN", "REMAIL": "REMAIL"}
+TYPE_LABELS = {"MAIN": "Main", "REMAIL": "Remail"}
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
           "October", "November", "December"]
 
 
 def _picker():
     today = dt.date.today()
-    c1, c2, c3 = st.columns(3)
+    c1, c2 = st.columns(2)
     month = c1.selectbox("Campaign Month", range(1, 13), index=today.month - 1,
                           format_func=lambda m: MONTHS[m - 1], key="cc_month")
-    year = c2.selectbox("Campaign Year", range(today.year - 3, today.year + 2), index=3, key="cc_year")
-    type_label = c3.selectbox("Campaign Type", list(TYPE_OPTIONS), key="cc_type",
-                               help="Derivation logic is TBD -- selected manually and stored on the campaign.")
-    return dt.date(year, month, 1), TYPE_OPTIONS[type_label]
+    year = c2.selectbox("Campaign Year", range(today.year, today.year + 4), key="cc_year")
+    return dt.date(year, month, 1)
 
 
 def _discover_section(session):
     st.subheader("Search for a campaign")
     st.caption("Mandatory ACM filters: program code not starting with W, reservation code ≤ 6 characters, "
-               "channel = Mail, offer status = Active. Month/year come from CAMPAIGN_GROUP_MAIL_DATE.")
-    reporting_month, campaign_type = _picker()
+               "channel = Mail, offer status = Active. Month/year come from CAMPAIGN_GROUP_MAIL_DATE. "
+               "Main and Remail for the chosen month are searched and created together.")
+    reporting_month = _picker()
 
     if st.button("Search", icon=":material/search:", key="cc_discover"):
-        st.session_state["cc_discovered"] = (reporting_month, campaign_type)
+        st.session_state["cc_discovered"] = reporting_month
 
     discovered = st.session_state.get("cc_discovered")
-    if discovered != (reporting_month, campaign_type):
+    if discovered != reporting_month:
         return
 
-    existing_id, existing_status = repository.existing_campaign_for_month(session, reporting_month, campaign_type)
-    if existing_id is not None:
-        st.info(f"This campaign already exists with status {existing_status}. Select it below to activate or continue it.")
+    existing, candidates, offers_by_type = {}, {}, {}
+    for campaign_type in ("MAIN", "REMAIL"):
+        existing_id, existing_status = repository.existing_campaign_for_month(session, reporting_month, campaign_type)
+        if existing_id is not None:
+            existing[campaign_type] = existing_status
+            continue
+        candidates[campaign_type] = repository.campaign_candidate(session, reporting_month, campaign_type)
+        offers_by_type[campaign_type] = repository.candidate_offers(session, reporting_month, campaign_type)
+
+    for campaign_type, status in existing.items():
+        st.info(f"{TYPE_LABELS[campaign_type]} campaign for this month already exists with status "
+                f"{status}. Select it below to continue.")
+
+    to_create = [t for t in ("MAIN", "REMAIL") if t not in existing]
+    if not to_create:
         return
 
-    candidate = repository.campaign_candidate(session, reporting_month, campaign_type)
-    offers = repository.candidate_offers(session, reporting_month, campaign_type)
-    if candidate.empty or offers.empty:
-        st.warning("No eligible ACM offers for this month and campaign type yet.")
-        st.subheader("Create campaign")
-        st.caption("No ACM data has landed for this month/type yet. Create a placeholder campaign now -- "
-                   "segments can be created under it right away -- and Activate it later once ACM data exists.")
-        with st.container(horizontal=True, vertical_alignment="bottom"):
-            reason = ui.reason_input("cc_manual_create_reason")
-            if st.button("Create Campaign", type="primary", icon=":material/add_box:", key="cc_manual_create"):
-                if ui.require_reason(reason):
-                    ui.run_action(
-                        SCOPE,
-                        lambda: (repository.create_manual_campaign(session, reporting_month, campaign_type),
-                                 "Campaign created -- Activate it once ACM data exists for this month."),
-                        lambda result: result[1],
-                        on_success=lambda result: st.session_state.update({ui.CAMPAIGN_KEY: result[0]}),
-                    )
-        return
-
-    row = candidate.iloc[0]
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Candidate", row["CAMPAIGN_DISPLAY_NAME"], border=True)
-    c2.metric("ACM offers", f"{len(offers):,}", border=True)
-    c3.metric("Mail dates", f"{row['SOURCE_MIN_MAIL_DATE']} - {row['SOURCE_MAX_MAIL_DATE']}", border=True)
-    st.dataframe(offers, hide_index=True, height=300, key="cc_offers")
+    for campaign_type in to_create:
+        candidate, offers = candidates[campaign_type], offers_by_type[campaign_type]
+        st.markdown(f"**{TYPE_LABELS[campaign_type]}**")
+        if candidate.empty or offers.empty:
+            st.caption("No ACM data has landed for this month/type yet -- a placeholder campaign will "
+                       "be created instead, to Activate later once ACM data exists.")
+        else:
+            row = candidate.iloc[0]
+            c1, c2 = st.columns(2)
+            c1.metric("Candidate", row["CAMPAIGN_DISPLAY_NAME"], border=True)
+            c2.metric("ACM offers", f"{len(offers):,}", border=True)
+            st.dataframe(offers, hide_index=True, height=250, key=f"cc_offers_{campaign_type}")
 
     def _create():
-        campaign_id = repository.discover_campaign(session, reporting_month, campaign_type)
-        if campaign_id is None:
-            raise ValueError("No eligible ACM offers exist for this month and campaign type.")
-        return campaign_id, "Campaign created -- activate it below to snapshot ACM offers."
+        created = []
+        for campaign_type in to_create:
+            candidate, offers = candidates[campaign_type], offers_by_type[campaign_type]
+            if candidate.empty or offers.empty:
+                campaign_id = repository.create_manual_campaign(session, reporting_month, campaign_type)
+            else:
+                campaign_id = repository.discover_campaign(session, reporting_month, campaign_type)
+            if campaign_id is not None:
+                created.append((campaign_type, campaign_id))
+        return created
 
-    st.subheader("Create campaign")
+    st.subheader("Create campaign(s)")
     with st.container(horizontal=True, vertical_alignment="bottom"):
         reason = ui.reason_input("cc_create_reason")
-        if st.button("Create Campaign", type="primary", icon=":material/add_box:", key="cc_create"):
+        if st.button("Create Campaign(s)", type="primary", icon=":material/add_box:", key="cc_create"):
             if ui.require_reason(reason):
                 ui.run_action(
-                    SCOPE, _create, lambda result: result[1],
-                    on_success=lambda result: st.session_state.update({ui.CAMPAIGN_KEY: result[0]}),
+                    SCOPE, _create,
+                    lambda result: ("Created " + " and ".join(TYPE_LABELS[t] for t, _ in result) + ".")
+                        if result else "Nothing to create -- both already exist for this month.",
+                    on_success=lambda result: st.session_state.update({ui.CAMPAIGN_KEY: result[0][1]}) if result else None,
                 )
 
 
@@ -91,7 +100,8 @@ def _campaign_list(session):
     if campaigns.empty:
         st.caption("No campaigns yet.")
         return
-    shown = campaigns.drop(columns=["CAMPAIGN_ID"]).rename(columns={"CURRENT_WORKING_VERSION_NUMBER": "VERSION"})
+    shown = campaigns.drop(columns=["CAMPAIGN_ID", "SOURCE_MIN_MAIL_DATE", "SOURCE_MAX_MAIL_DATE"]) \
+        .rename(columns={"CURRENT_WORKING_VERSION_NUMBER": "VERSION"})
     event = st.dataframe(ui.style_status_column(shown), hide_index=True, on_select="rerun",
                           selection_mode="single-row", key="cc_campaigns")
     selected = event.selection.rows if event and event.selection else []
