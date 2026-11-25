@@ -1,9 +1,6 @@
-"""All SQL access for the PADM dashboard (reads and writes).
-
-Writes either CALL a SP_PADM_* procedure (which owns its transaction) or run inside
-``db.transaction``. Every user write carries a CHANGE_REASON and runs inside
-(before/after values, CURRENT_USER(), timestamp). App-side writes refuse APPROVED campaigns.
-"""
+"""All SQL access for the PADM dashboard (reads and writes). Writes either CALL a SP_PADM_*
+procedure or run inside db.transaction; every user write carries a CHANGE_REASON and refuses
+APPROVED (read-only) campaigns."""
 
 import hashlib
 import json
@@ -117,9 +114,7 @@ def candidate_offers(session, reporting_month, campaign_type):
 
 
 def discover_campaign(session, reporting_month, campaign_type):
-    """Single MERGE path from VW_PADM_ACM_CAMPAIGN_CANDIDATE into DM_PADM_CAMPAIGN_1.
-    New -> STATUS 'NEW'. Existing campaign whose ACM range moved -> SOURCE_CHANGE_PENDING_FLAG
-    (except while still NEW, where the row is simply refreshed). Returns CAMPAIGN_ID or None."""
+    """MERGE from VW_PADM_ACM_CAMPAIGN_CANDIDATE into DM_PADM_CAMPAIGN_1. Returns CAMPAIGN_ID or None."""
     exec_sql(
         session,
         f"""
@@ -158,9 +153,8 @@ def discover_campaign(session, reporting_month, campaign_type):
 
 
 def existing_campaign_for_month(session, reporting_month, campaign_type):
-    """Looks up a PADM campaign for this month/type directly against DM_PADM_CAMPAIGN_1 --
-    independent of whether ACM has any candidate data yet. Returns (campaign_id, status) or
-    (None, None)."""
+    """Looks up a PADM campaign for this month/type, independent of ACM candidate data. Returns
+    (campaign_id, status) or (None, None)."""
     rows = session.sql(
         f"SELECT CAMPAIGN_ID, STATUS FROM {SCHEMA}.DM_PADM_CAMPAIGN_1 WHERE REPORTING_MONTH = ? AND CAMPAIGN_TYPE = ?",
         params=[reporting_month, campaign_type],
@@ -169,12 +163,10 @@ def existing_campaign_for_month(session, reporting_month, campaign_type):
 
 
 def create_manual_campaign(session, reporting_month, campaign_type):
-    """Creates a placeholder campaign shell (STATUS 'NEW') for a month with no ACM candidate data
-    yet. CAMPAIGN_SEQUENCE and CAMPAIGN_DISPLAY_NAME use the exact same formulas
-    VW_PADM_ACM_CAMPAIGN_CANDIDATE does (sql/deploy.sql) so a campaign created this way looks
-    identical to one discovered from ACM later. The ACM-sourced fields (SOURCE_CAMPAIGN_IDENTIFICATION_CODE,
-    SOURCE_MIN_MAIL_DATE, SOURCE_MAX_MAIL_DATE) are left NULL -- discover_campaign() fills those in
-    for real once ACM data exists and this campaign is refreshed/activated."""
+    """Placeholder campaign shell (STATUS 'NEW') for a month with no ACM data yet. CAMPAIGN_SEQUENCE
+    and CAMPAIGN_DISPLAY_NAME match VW_PADM_ACM_CAMPAIGN_CANDIDATE's formulas so it looks identical
+    to one discovered from ACM later; discover_campaign() fills in the ACM-sourced fields once ACM
+    data exists."""
     month_name = reporting_month.strftime("%B")
     type_label = "Main" if campaign_type == "MAIN" else "Remail"
     sequence = (reporting_month.month - 1) * 2 + (1 if campaign_type == "MAIN" else 2)
@@ -196,8 +188,7 @@ def create_manual_campaign(session, reporting_month, campaign_type):
 
 
 def activate_campaign(session, campaign_id, reason):
-    """Snapshot ACM via SP_PADM_ACTIVATE_CAMPAIGN (NEW -> DRAFT). Campaign must already exist --
-    see discover_campaign()/create_and_activate_campaign() to create one first."""
+    """Snapshot ACM via SP_PADM_ACTIVATE_CAMPAIGN (NEW -> DRAFT). Campaign must already exist."""
     status = campaign_status(session, campaign_id)
     if status not in ("NEW", "DRAFT"):
         return campaign_id, f"Campaign already exists with status {status}."
@@ -211,8 +202,7 @@ def activate_campaign(session, campaign_id, reason):
 
 
 def create_and_activate_campaign(session, reporting_month, campaign_type, reason):
-    """Discover (MERGE) then snapshot ACM via SP_PADM_ACTIVATE_CAMPAIGN (NEW -> DRAFT). Convenience
-    wrapper combining discover_campaign() + activate_campaign() for callers that want both at once."""
+    """discover_campaign() + activate_campaign() in one call."""
     campaign_id = discover_campaign(session, reporting_month, campaign_type)
     if campaign_id is None:
         raise ProcedureError("No eligible ACM offers exist for this month and campaign type.")
@@ -276,8 +266,7 @@ def previous_campaign(session, campaign_id):
 # ===========================================================================
 
 def signature_live(session, campaign_id):
-    # Order by columns VW_PADM_SIGNATURE_PAGE_LIVE actually outputs -- SCORE_MIN / SEGMENT_NAME
-    # are not among them and would raise "invalid identifier".
+    # ORDER BY is restricted to columns VW_PADM_SIGNATURE_PAGE_LIVE actually outputs.
     return df(
         session,
         f"""
@@ -289,8 +278,7 @@ def signature_live(session, campaign_id):
 
 
 def sibling_campaign(session, campaign_id):
-    """The other campaign type (MAIN<->REMAIL) for the same reporting month as campaign_id, if one
-    exists -- lets Pre Signature Page show Main and Remail together. One-row frame or empty."""
+    """The other campaign type (MAIN<->REMAIL) for the same reporting month, if one exists."""
     return df(
         session,
         f"""
@@ -305,8 +293,7 @@ def sibling_campaign(session, campaign_id):
 
 
 def signature_live_for_month(session, campaign_ids):
-    """Like signature_live(), but across more than one campaign at once (Pre Signature Page shows
-    Main + Remail together for the same month) -- CAMPAIGN_ID in the output tells rows apart."""
+    """Like signature_live(), across more than one campaign at once; CAMPAIGN_ID tells rows apart."""
     ids = list(campaign_ids)
     placeholders = ", ".join(["?"] * len(ids))
     return df(
@@ -320,11 +307,9 @@ def signature_live_for_month(session, campaign_ids):
 
 
 def pre_signature_detail(session, campaign_ids):
-    """Current Total Available Volume / Quantity / Owner-Approver for these campaigns' offers.
-    campaign_ids: an iterable of one or more campaign ids (Pre Signature Page shows Main + Remail
-    together when both exist for the same month). CREATED_TS is included so a caller can pick the
-    most recent row if more than one IS_CURRENT row ever exists for the same offer
-    (padm/tabs/pre_signature_page.py guards against this)."""
+    """Current Volume/Quantity/Owner-Approver for these campaigns' offers. campaign_ids: one or more
+    ids. CREATED_TS lets a caller pick the most recent row if more than one IS_CURRENT row ever
+    exists for the same offer."""
     ids = list(campaign_ids)
     placeholders = ", ".join(["?"] * len(ids))
     return df(
@@ -339,9 +324,8 @@ def pre_signature_detail(session, campaign_ids):
 
 
 def previous_pre_signature_detail(session, campaign_id):
-    """Same fields from the previous campaign, keyed by OFFER_RESERVATION_CODE so they can be
-    matched to this campaign's offers even though CAMPAIGN_OFFER_ID is a fresh snapshot each
-    campaign. Empty frame if there's no previous campaign."""
+    """Same fields from the previous campaign, keyed by OFFER_RESERVATION_CODE (CAMPAIGN_OFFER_ID
+    is a fresh snapshot each campaign, so it can't be used to match). Empty if no prior campaign."""
     prior = previous_campaign(session, campaign_id)
     if prior.empty:
         return pd.DataFrame()
@@ -360,10 +344,8 @@ def previous_pre_signature_detail(session, campaign_id):
 
 def save_pre_signature_detail(session, rows, reason):
     """rows: [{CAMPAIGN_ID, CAMPAIGN_OFFER_ID, TOTAL_AVAILABLE_VOLUME, QUANTITY_PERCENTAGE,
-    QUANTITY_UNITS, OWNER_APPROVER}, ...]. Rows can span more than one campaign (Pre Signature Page
-    saves Main + Remail together). Soft-versions per offer: retires the current row, inserts a new
-    one. Grouped by CAMPAIGN_ID so a campaign that's APPROVED (read-only) is skipped rather than
-    failing the whole save -- the return message says how many offers were skipped, if any."""
+    QUANTITY_UNITS, OWNER_APPROVER}, ...], can span more than one campaign. Soft-versions per offer.
+    A campaign that's APPROVED is skipped (not failed) -- the return message reports the count."""
     if not rows:
         return "Nothing to save."
     by_campaign = {}
@@ -387,9 +369,7 @@ def save_pre_signature_detail(session, rows, reason):
                 """,
                 [campaign_id, *offer_ids],
             )
-            # UUID_STRING() is refused inside a VALUES(...) clause by Snowflake (a recurring issue
-            # in this codebase, fixed the same way at other call sites) -- a SELECT list is fine, so
-            # each row is its own SELECT, combined with UNION ALL into one INSERT.
+            # Snowflake refuses UUID_STRING() inside VALUES(...) but allows it in a SELECT list.
             select_rows = " UNION ALL ".join(
                 ["SELECT UUID_STRING(), ?, ?, ?, ?, ?, ?, TRUE, ?"] * len(campaign_rows))
             binds = []
@@ -608,15 +588,12 @@ def segments_master(session):
 
 
 def segment_key(source_name, score_type, score_min, score_max):
-    """The natural key that identifies a segment regardless of which campaign it's on --
-    SOURCE_NAME/SCORE_TYPE/SCORE_MIN/SCORE_MAX, the same 4 fields create_segment.py calls
-    "mandatory fields". Matches DM_PADM_SEGMENT_1.SEGMENT_KEY (sql/deploy.sql) exactly."""
+    """SOURCE_NAME/SCORE_TYPE/SCORE_MIN/SCORE_MAX. Must match DM_PADM_SEGMENT_1.SEGMENT_KEY exactly."""
     return f"{(source_name or '').upper()}|{score_type.upper()}|{int(score_min)}|{int(score_max)}"
 
 
 def campaign_segment_key(campaign_id, segment_id):
-    """Identifies one campaign's copy of one segment. Matches
-    DM_PADM_CAMPAIGN_SEGMENT_1.CAMPAIGN_SEGMENT_KEY (sql/deploy.sql) exactly."""
+    """Must match DM_PADM_CAMPAIGN_SEGMENT_1.CAMPAIGN_SEGMENT_KEY exactly."""
     return f"{campaign_id}|{segment_id}"
 
 
@@ -629,14 +606,10 @@ def find_segment(session, score_type, score_min, score_max, source_name):
 
 
 def discover_segments(session):
-    """Bulk insert-only MERGE from VW_PADM_SEGMENT_SOURCE_CANDIDATE (real ACM mailfile history)
-    into DM_PADM_SEGMENT_1 -- the same source-candidate view bkp_files/load_campaigns_segments_
-    from_source.sql reads, but targeting the table the app actually uses. Matched on the same
-    4-field natural key find_segment() uses (SOURCE_NAME, SCORE_TYPE, SCORE_MIN, SCORE_MAX),
-    since DM_PADM_SEGMENT_1 has no SEGMENT_KEY column. Never updates an existing segment --
-    DM_PADM_SEGMENT_1 also has no USER_CREATED_FLAG to distinguish a dashboard-curated row from a
-    source-derived one, so insert-only (new governed segments only) is the safe choice, unlike
-    discover_campaign()'s MATCHED/update branches. Returns the number of new segments inserted."""
+    """Insert-only MERGE from VW_PADM_SEGMENT_SOURCE_CANDIDATE into DM_PADM_SEGMENT_1, matched on
+    find_segment()'s natural key. Never updates an existing segment -- there's no flag to tell a
+    dashboard-curated row from a source-derived one, so insert-only is the safe choice. Returns the
+    count of new segments inserted."""
     rows = exec_sql(
         session,
         f"""
@@ -688,10 +661,8 @@ def campaign_segments(session, campaign_id):
 
 
 def campaign_offers(session, campaign_id):
-    """Every current offer for this campaign -- one row per offer, no segment join. An offer can
-    belong to any number of segments (many-to-many -- its full Quantity/Boards/$ count
-    independently in EACH segment's totals, by design); use offer_segment_allocations() for
-    the offer<->segment links."""
+    """Every current offer for this campaign, one row per offer, no segment join -- an offer can
+    belong to several segments (many-to-many); see offer_segment_allocations() for those links."""
     return df(
         session,
         f"""
@@ -706,8 +677,7 @@ def campaign_offers(session, campaign_id):
 
 
 def offer_segment_allocations(session, campaign_id):
-    """Current offer<->segment links for this campaign (many-to-many: an offer may have several
-    rows, one per segment it belongs to)."""
+    """Current offer<->segment links for this campaign (an offer may have several rows)."""
     return df(
         session,
         f"""
@@ -749,9 +719,8 @@ def _working_version(session, campaign_id):
 
 
 def _insert_allocations(session, campaign_id, segment_id, offer_ids, reason, method, label=None):
-    """An offer may belong to any number of segments (many-to-many) -- this only guards against
-    a duplicate *(offer, segment)* row, not against the offer having other current allocations
-    to different segments."""
+    """Guards only against a duplicate (offer, segment) row -- an offer may have other current
+    allocations to different segments."""
     if not offer_ids:
         return 0
     rows = exec_sql(
@@ -869,10 +838,8 @@ def reuse_segment(session, campaign_id, segment_id, offer_ids, reason):
 
 
 def reuse_all_segments(session, campaign_id, segment_ids, reason):
-    """Bulk-link every given governed segment onto this campaign (no offer allocation -- that
-    stays a per-segment step afterward, via Create Segment's edit panel or Population
-    Description). Safe to call with segments already on the campaign: _ensure_campaign_segment()
-    is a NOT-EXISTS-guarded insert, so duplicates are silently skipped, not double-added."""
+    """Bulk-link every given governed segment onto this campaign (no offer allocation -- that's a
+    separate step). Safe to call with segments already on the campaign (insert is NOT-EXISTS-guarded)."""
     _assert_editable(session, campaign_id)
     if not segment_ids:
         return 0
@@ -885,8 +852,7 @@ def reuse_all_segments(session, campaign_id, segment_ids, reason):
 
 
 def edit_segment(session, campaign_id, segment_id, expected_row_version, changes, reason):
-    """changes: {column: new value} for optional attributes only (mandatory fields define the
-    governed segment and its name)."""
+    """changes: {column: new value}, optional attributes only -- mandatory fields define the segment."""
     _assert_editable(session, campaign_id)
     changes = {k: (v or None) for k, v in changes.items() if k in SEGMENT_OPTIONAL_FIELDS}
     if not changes:
@@ -911,9 +877,7 @@ def edit_segment(session, campaign_id, segment_id, expected_row_version, changes
 
 
 def set_segment_offers(session, campaign_id, segment_id, offer_ids, reason):
-    """Replace this segment's current offer set (new allocation versions; old ones retired). Only
-    touches this segment's own links -- an offer kept here that's also on another segment is
-    untouched there (many-to-many)."""
+    """Replace this segment's current offer set. Only touches this segment's own links."""
     _assert_editable(session, campaign_id)
     allocations = offer_segment_allocations(session, campaign_id)
     current = allocations[allocations["SEGMENT_ID"] == segment_id]
@@ -955,8 +919,7 @@ def remove_segment_from_campaign(session, campaign_id, segment_id, reason):
 # ===========================================================================
 
 def previous_allocation(session, campaign_id):
-    """{segment_id: [current campaign offer ids]} from the previous campaign's allocation,
-    matched by offer reservation code."""
+    """{segment_id: [current campaign offer ids]} from the previous campaign, matched by reservation code."""
     prior = previous_campaign(session, campaign_id)
     if prior.empty:
         return {}
@@ -976,10 +939,9 @@ def previous_allocation(session, campaign_id):
 
 
 def save_population_allocation(session, campaign_id, segment_offers, segment_labels, reason):
-    """segment_offers: {segment_id: [offer ids]}; segment_labels: {segment_id: label}.
-    Any segment whose offers or label changed gets new allocation versions (old ones retired).
-    An offer may appear under more than one segment_id -- many-to-many is intentional: its full
-    Quantity/Boards/$ then count independently in each of those segments' totals."""
+    """segment_offers: {segment_id: [offer ids]}; segment_labels: {segment_id: label}. Any segment
+    whose offers or label changed gets new allocation versions. An offer may intentionally appear
+    under more than one segment_id."""
     _assert_editable(session, campaign_id)
     allocations = offer_segment_allocations(session, campaign_id)
     changed = 0
@@ -1019,8 +981,8 @@ def active_cde_batch(session, campaign_id, segment_id):
 
 
 def ensure_working_grid(session, campaign_id, segment_id):
-    """Seeds DM_PADM_SELECTION_WORKING for every active CDE cell lacking a row, with the most
-    recent prior campaign's saved % for this segment, else 0."""
+    """Seeds DM_PADM_SELECTION_WORKING for every active CDE cell lacking a row, with the prior
+    campaign's saved % for this segment, else 0."""
     rows = exec_sql(
         session,
         f"""
@@ -1098,9 +1060,9 @@ def selection_history(session, campaign_id, segment_id):
 
 
 def save_selections(session, campaign_id, segment_id, changes, actions, reason):
-    """changes: [(tier, bucket, new_fraction, expected_row_version, old_fraction)].
-    actions: user actions since the last save, logged one row each in DM_PADM_SELECTION_EVENT
-    (like Excel change tracking). Then SP_PADM_SAVE_SELECTION_SET creates the immutable set."""
+    """changes: [(tier, bucket, new_fraction, expected_row_version, old_fraction)]. actions: user
+    actions since the last save, logged to DM_PADM_SELECTION_EVENT. Then SP_PADM_SAVE_SELECTION_SET
+    creates the immutable set."""
     _assert_editable(session, campaign_id)
     if not changes:
         raise ProcedureError("No selection changes to save.")
@@ -1166,9 +1128,9 @@ def mailfile_cells(session, campaign_id, segment_id):
 
 
 def load_cde_version(session, campaign_id, segment_id, raw_bytes, file_name, score_band, cells, total_rows, reason):
-    """New DM_PADM_CDE_LOAD_BATCH + DM_PADM_CDE_DETAIL cells, activated through
-    SP_PADM_ACTIVATE_CDE_VERSION, then the selection working grid is seeded.
-    cells: DataFrame with TRM10_TIER, TIMES_MAILED_BUCKET, DISTINCT_EPIN_COUNT."""
+    """New DM_PADM_CDE_LOAD_BATCH + DM_PADM_CDE_DETAIL cells, activated via SP_PADM_ACTIVATE_CDE_VERSION,
+    then the selection working grid is seeded. cells: DataFrame with TRM10_TIER, TIMES_MAILED_BUCKET,
+    DISTINCT_EPIN_COUNT."""
     _assert_editable(session, campaign_id)
     batch_id = str(uuid.uuid4())
     with transaction(session):
