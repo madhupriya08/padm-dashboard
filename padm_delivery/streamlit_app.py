@@ -109,16 +109,16 @@ def _landing(session) -> None:
 
 
 # Snowflake login names of the people allowed to open this dashboard in the shared workspace --
-# everyone else sees a plain "work in progress" page instead. Fill in with the real login names
-# from 04_find_user_logins.sql (CURRENT_USER() may or may not be the same as the person's email,
-# depending on how this account's SSO is set up -- check before relying on it).
+# everyone else sees a plain "work in progress" page instead. CURRENT_USER() on this account
+# returns the person's email address (confirmed live), so the login name is just the email,
+# uppercased.
 AUTHORIZED_USERS = {
-    "REPLACE_WITH_LOGIN_NAME_1",
-    "REPLACE_WITH_LOGIN_NAME_2",
-    "REPLACE_WITH_LOGIN_NAME_3",
-    "REPLACE_WITH_LOGIN_NAME_4",
-    "REPLACE_WITH_LOGIN_NAME_5",
-    "REPLACE_WITH_LOGIN_NAME_6",
+    "MADHUPRIYA.ALLAM@CREDITONE.COM",
+    "JENNIFER.MASON@CREDITONE.COM",
+    "MISHA.OBERG@CREDITONE.COM",
+    "JESSICA.ANDERSON@CREDITONE.COM",
+    "NINA.NGUYEN@CREDITONE.COM",
+    "BIANCA.BIN@CREDITONE.COM",
 }
 
 
