@@ -1,0 +1,523 @@
+-- Idempotent -- safe to re-run.
+USE DATABASE DB_RISK;
+USE SCHEMA RISK_SBX;
+
+-- New credit bureau columns on the campaign offer table, read by the two views below.
+ALTER TABLE DM_PADM_CAMPAIGN_OFFER ADD COLUMN IF NOT EXISTS CREDIT_BUREAU_MODEL VARCHAR(16777216);
+ALTER TABLE DM_PADM_CAMPAIGN_OFFER ADD COLUMN IF NOT EXISTS CREDIT_BUREAU_SCORE VARCHAR(16777216);
+
+-- Current (IS_CURRENT) snapshotted offer per campaign.
+CREATE OR REPLACE VIEW VW_PADM_CAMPAIGN_OFFER_CURRENT(
+    CAMPAIGN_OFFER_ID,
+    CAMPAIGN_ID,
+    CAMPAIGN_SOURCE_COMPONENT_ID,
+    OFFER_RESERVATION_CODE,
+    PROGRAM_CODE,
+    PROGRAM_VERSION_NUMBER,
+    SOURCE_MAIL_DATE,
+    OFFER_DESCRIPTION,
+    OFFER_SEGMENT_NAME,
+    TEST_TYPE,
+    SOURCE_CPP,
+    PROMO_CODE,
+    APPROVAL_CODE,
+    UNDERWRITING_FLAG,
+    PROSPECT_TYPE,
+    PRINT_VENDOR_ID,
+    CRS_SCORE,
+    CREDIT_BUREAU_MODEL,
+    CREDIT_BUREAU_SCORE,
+    OFFER_STATUS
+) AS
+SELECT
+      O.CAMPAIGN_OFFER_ID
+    , O.CAMPAIGN_ID
+    , O.CAMPAIGN_SOURCE_COMPONENT_ID
+    , O.OFFER_RESERVATION_CODE
+    , O.PROGRAM_CODE
+    , O.PROGRAM_VERSION_NUMBER
+    , O.SOURCE_MAIL_DATE
+    , O.OFFER_DESCRIPTION
+    , O.OFFER_SEGMENT_NAME
+    , O.TEST_TYPE
+    , O.SOURCE_CPP
+    , O.PROMO_CODE
+    , O.APPROVAL_CODE
+    , O.UNDERWRITING_FLAG
+    , O.PROSPECT_TYPE
+    , O.PRINT_VENDOR_ID
+    , O.CRS_SCORE
+    , O.CREDIT_BUREAU_MODEL
+    , O.CREDIT_BUREAU_SCORE
+    , O.OFFER_STATUS
+FROM DM_PADM_CAMPAIGN_OFFER AS O
+INNER JOIN DM_PADM_CAMPAIGN_SOURCE_VERSION AS S
+    ON O.CAMPAIGN_SOURCE_VERSION_ID = S.CAMPAIGN_SOURCE_VERSION_ID
+   AND S.IS_CURRENT = TRUE
+WHERE O.IS_CURRENT = TRUE;
+
+-- Current CDE grid volume per (campaign, segment, tier, times-mailed bucket).
+CREATE OR REPLACE VIEW VW_PADM_CDE_GRID_CURRENT AS
+SELECT
+      D.CAMPAIGN_ID
+    , D.SEGMENT_ID
+    , D.TRM10_TIER AS RESPONSE_MODEL_TIER
+    , D.TIMES_MAILED_BUCKET
+    , SUM(D.DISTINCT_EPIN_COUNT)::NUMBER(38,6) AS CDE_VOLUME
+    , B.CDE_LOAD_BATCH_ID
+    , B.VERSION_NUMBER AS CDE_VERSION_NUMBER
+FROM DM_PADM_CDE_DETAIL AS D
+INNER JOIN DM_PADM_CDE_LOAD_BATCH AS B
+    ON D.CDE_LOAD_BATCH_ID = B.CDE_LOAD_BATCH_ID
+   AND B.ACTIVE_FLAG = TRUE
+   AND B.VALIDATION_STATUS = 'VALID'
+GROUP BY
+      D.CAMPAIGN_ID
+    , D.SEGMENT_ID
+    , D.TRM10_TIER
+    , D.TIMES_MAILED_BUCKET
+    , B.CDE_LOAD_BATCH_ID
+    , B.VERSION_NUMBER;
+
+-- Current selection-percentage working set.
+CREATE OR REPLACE VIEW VW_PADM_SELECTION_CURRENT AS
+SELECT
+      CAMPAIGN_ID
+    , SEGMENT_ID
+    , RESPONSE_MODEL_TIER
+    , TIMES_MAILED_BUCKET
+    , SELECTION_PERCENTAGE
+    , SOURCE_CAMPAIGN_ID
+    , SOURCE_SEGMENT_ID
+    , INITIALIZATION_METHOD AS SELECTION_SOURCE
+    , UPDATED_BY
+    , UPDATED_TS
+FROM DM_PADM_SELECTION_WORKING;
+
+-- Eligible ACM campaign candidates (Main/Remail) per reporting month -- backs Campaign Creation's
+-- "Search for a campaign". Mandatory filters: channel = Mail, status = Active, not removed,
+-- group code in PADM/MAP/PAREMAIL, program code not starting with W, reservation code <= 6 chars.
+CREATE OR REPLACE VIEW VW_PADM_ACM_CAMPAIGN_CANDIDATE
+AS
+
+WITH ELIGIBLE_OFFER AS
+(
+    SELECT
+        YEAR(
+            O.CAMPAIGN_GROUP_MAIL_DATE
+        ) AS CAMPAIGN_YEAR
+
+        , MONTH(
+            O.CAMPAIGN_GROUP_MAIL_DATE
+        ) AS CAMPAIGN_MONTH
+
+        , DATE_TRUNC(
+            'MONTH',
+            O.CAMPAIGN_GROUP_MAIL_DATE
+        )::DATE AS REPORTING_MONTH
+
+        , CASE
+            WHEN UPPER(
+                TRIM(
+                    O.CAMPAIGN_GROUP_CODE
+                )
+            ) = 'PADM'
+            THEN 'MAIN'
+
+            WHEN UPPER(
+                TRIM(
+                    O.CAMPAIGN_GROUP_CODE
+                )
+            ) IN (
+                'MAP',
+                'PAREMAIL'
+            )
+            THEN 'REMAIL'
+        END AS CAMPAIGN_TYPE
+
+        , O.CAMPAIGN_IDENTIFICATION_CODE
+            AS SOURCE_CAMPAIGN_IDENTIFICATION_CODE
+
+        , UPPER(
+            TRIM(
+                O.CAMPAIGN_GROUP_CODE
+            )
+        ) AS SOURCE_COMPONENT_CODE
+
+        , O.CAMPAIGN_GROUP_MAIL_DATE::DATE
+            AS SOURCE_MAIL_DATE
+
+        , TRIM(
+            O.CAMPAIGN_OFFER_RESERVATION_CODE
+        ) AS OFFER_RESERVATION_CODE
+
+    FROM CSTONE_BIZ.REFERENCE
+        .T_ACM_CAMPAIGN_OFFERS AS O
+
+    WHERE O.CAMPAIGN_IDENTIFICATION_CODE
+        IS NOT NULL
+
+      AND O.CAMPAIGN_GROUP_MAIL_DATE
+        IS NOT NULL
+
+      AND UPPER(
+            TRIM(
+                O.CAMPAIGN_TYPE_CHANNEL_TYPE
+            )
+        ) = 'MAIL'
+
+      AND UPPER(
+            TRIM(
+                O.CAMPAIGN_OFFER_STATUS
+            )
+        ) = 'ACTIVE'
+
+      AND COALESCE(
+            O.CAMPAIGN_OFFER_REMOVED_FLAG,
+            FALSE
+        ) = FALSE
+
+      AND UPPER(
+            TRIM(
+                O.CAMPAIGN_GROUP_CODE
+            )
+        ) IN (
+            'PADM',
+            'MAP',
+            'PAREMAIL'
+        )
+
+      AND UPPER(
+            TRIM(
+                O.PROGRAM_CODE
+            )
+        ) NOT LIKE 'W%'
+
+      AND LENGTH(
+            TRIM(
+                O.CAMPAIGN_OFFER_RESERVATION_CODE
+            )
+        ) <= 6
+),
+
+CAMPAIGN_GRAIN AS
+(
+    SELECT
+        CAMPAIGN_YEAR
+        , CAMPAIGN_MONTH
+        , REPORTING_MONTH
+        , CAMPAIGN_TYPE
+
+        , (
+            (
+                CAMPAIGN_MONTH - 1
+            ) * 2
+        )
+        + CASE
+            WHEN CAMPAIGN_TYPE = 'MAIN'
+                THEN 1
+            WHEN CAMPAIGN_TYPE = 'REMAIL'
+                THEN 2
+        END AS CAMPAIGN_SEQUENCE
+
+        , LISTAGG(
+            DISTINCT
+            SOURCE_CAMPAIGN_IDENTIFICATION_CODE,
+            ', '
+        ) WITHIN GROUP
+        (
+            ORDER BY
+                SOURCE_CAMPAIGN_IDENTIFICATION_CODE
+        ) AS SOURCE_CAMPAIGN_IDENTIFICATION_CODES
+
+        , COUNT(
+            DISTINCT
+            SOURCE_CAMPAIGN_IDENTIFICATION_CODE
+        ) AS SOURCE_IDENTIFICATION_CODE_COUNT
+
+        , LISTAGG(
+            DISTINCT
+            SOURCE_COMPONENT_CODE,
+            ', '
+        ) WITHIN GROUP
+        (
+            ORDER BY
+                SOURCE_COMPONENT_CODE
+        ) AS SOURCE_COMPONENT_CODES
+
+        , COUNT(
+            DISTINCT
+            SOURCE_COMPONENT_CODE
+        ) AS SOURCE_COMPONENT_COUNT
+
+        , MIN(
+            SOURCE_MAIL_DATE
+        ) AS SOURCE_MIN_MAIL_DATE
+
+        , MAX(
+            SOURCE_MAIL_DATE
+        ) AS SOURCE_MAX_MAIL_DATE
+
+        , COUNT(
+            DISTINCT
+            OFFER_RESERVATION_CODE
+        ) AS SOURCE_OFFER_COUNT
+
+    FROM ELIGIBLE_OFFER
+
+    WHERE CAMPAIGN_TYPE IS NOT NULL
+
+    GROUP BY
+        CAMPAIGN_YEAR
+        , CAMPAIGN_MONTH
+        , REPORTING_MONTH
+        , CAMPAIGN_TYPE
+)
+SELECT
+    CAMPAIGN_YEAR
+    , CAMPAIGN_MONTH
+    , REPORTING_MONTH
+    , CAMPAIGN_SEQUENCE
+    , CAMPAIGN_TYPE
+
+    , TO_CHAR(
+        REPORTING_MONTH,
+        'MMMM YYYY'
+    )
+    || ' '
+    || CASE
+        WHEN CAMPAIGN_TYPE = 'MAIN'
+            THEN 'Main'
+        WHEN CAMPAIGN_TYPE = 'REMAIL'
+            THEN 'Remail'
+    END
+    || ' Campaign'
+        AS CAMPAIGN_DISPLAY_NAME
+
+    , SOURCE_CAMPAIGN_IDENTIFICATION_CODES
+    , SOURCE_IDENTIFICATION_CODE_COUNT
+    , SOURCE_COMPONENT_CODES
+    , SOURCE_COMPONENT_COUNT
+    , SOURCE_MIN_MAIL_DATE
+    , SOURCE_MAX_MAIL_DATE
+    , SOURCE_OFFER_COUNT
+
+FROM CAMPAIGN_GRAIN;
+
+-- Raw ACM offer source, same mandatory filters as above plus a left-joined program match
+-- (annual fee / network) -- backs Campaign Creation's offer preview and the Matrix-style column
+-- set on Pre Signature Page.
+CREATE OR REPLACE VIEW
+    VW_PADM_ACM_OFFER_SOURCE
+AS
+
+SELECT
+    O.CAMPAIGN_IDENTIFICATION_CODE
+        AS SOURCE_CAMPAIGN_IDENTIFICATION_CODE
+
+    , O.CAMPAIGN_GROUP_CODE
+        AS SOURCE_CAMPAIGN_GROUP_CODE
+
+    , O.CAMPAIGN_TYPE_CODE
+        AS SOURCE_CAMPAIGN_TYPE_CODE
+
+    , O.CAMPAIGN_TYPE_NAME
+        AS SOURCE_CAMPAIGN_TYPE_NAME
+
+    , O.CAMPAIGN_GROUP_DESCRIPTION
+        AS SOURCE_CAMPAIGN_GROUP_DESCRIPTION
+
+    , O.CAMPAIGN_GROUP_MAIL_DATE::DATE
+        AS SOURCE_MAIL_DATE
+
+    , O.CAMPAIGN_GROUP_START_DATE::DATE
+        AS SOURCE_GROUP_START_DATE
+
+    , O.CAMPAIGN_GROUP_END_DATE::DATE
+        AS SOURCE_GROUP_END_DATE
+
+    , O.CAMPAIGN_GROUP_RETIRE_DATE::DATE
+        AS SOURCE_GROUP_RETIRE_DATE
+
+    , O.CAMPAIGN_GROUP_EXPIRE_DATE::DATE
+        AS SOURCE_GROUP_EXPIRE_DATE
+
+    , O.CAMPAIGN_GROUP_LETTER_EXPIRE_DATE::DATE
+        AS SOURCE_LETTER_EXPIRE_DATE
+
+    , O.CAMPAIGN_COUNTER
+        AS SOURCE_CAMPAIGN_COUNTER
+
+    , O.CAMPAIGN_OFFER_RESERVATION_CODE
+        AS OFFER_RESERVATION_CODE
+
+    , O.PROGRAM_CODE
+        AS PROGRAM_CODE
+
+    , O.PROGRAM_VERSION_NUMBER
+        AS PROGRAM_VERSION_NUMBER
+
+    , O.CAMPAIGN_CODE
+        AS SOURCE_CAMPAIGN_CODE
+
+    , O.CAMPAIGN_NAME
+        AS SOURCE_CAMPAIGN_NAME
+
+    , O.CAMPAIGN_DESCRIPTION
+        AS SOURCE_CAMPAIGN_DESCRIPTION
+
+    , COALESCE(
+        NULLIF(
+            TRIM(
+                O.CAMPAIGN_OFFER_DESCRIPTION
+            ),
+            ''
+        ),
+        NULLIF(
+            TRIM(
+                O.CAMPAIGN_OFFER_SEGMENT_NAME
+            ),
+            ''
+        )
+    ) AS OFFER_DESCRIPTION
+
+    , O.CAMPAIGN_OFFER_SEGMENT_NAME
+        AS ACM_SEGMENT_NAME
+
+    , O.CAMPAIGN_OFFER_CONTROL_TEST_DESCRIPTION
+        AS TEST_TYPE
+
+    , O.PROSPECT_CREDIT_BUREAU_MODEL
+        AS CREDIT_BUREAU_MODEL
+
+    , O.PROSPECT_CREDIT_BUREAU_SCORE
+        AS CREDIT_BUREAU_SCORE
+
+    , O.PROSPECT_CRS_MODEL
+        AS CRS_MODEL
+
+    , O.PROSPECT_CRS_SCORE
+        AS CRS_SCORE
+
+    , O.NET_RESPONSE_MODEL_CODE
+        AS NRM
+
+    , O.COST_PER_PIECE::NUMBER(18,6)
+        AS SOURCE_CPP
+
+    , O.RESERVATION_CODE_RISK
+        AS PROMO
+
+    , O.CAMPAIGN_OFFER_APPROVAL_CODE
+        AS IVR
+
+    , O.UNDERWRITING_FLAG
+        AS UNDERWRITING_FLAG
+
+    , O.PROSPECT_TYPE
+        AS PROSPECT_TYPE
+
+    , O.PRINT_VENDOR_ID
+        AS PRINT_VENDOR_ID
+
+    , CASE
+        WHEN P.PROGRAM_CODE IS NOT NULL
+            THEN 'EXACT_VERSION'
+
+        ELSE 'NO_EXACT_PROGRAM_VERSION'
+            END AS PROGRAM_MATCH_STATUS
+
+    , P.PROGRAM_CODE
+        AS MATCHED_PROGRAM_CODE
+
+    , P.PROGRAM_VERSION_NUMBER
+        AS MATCHED_PROGRAM_VERSION_NUMBER
+
+    , P.ANNUAL_FEE_YR1
+        AS ANNUAL_FEE_YR1
+
+    , P.ANNUAL_FEE_YR2
+        AS ANNUAL_FEE_YR2
+
+    , CASE
+        WHEN P.PROGRAM_CODE IS NOT NULL
+            THEN CONCAT(
+                TO_VARCHAR(
+                    P.ANNUAL_FEE_YR1
+                ),
+                '/',
+                TO_VARCHAR(
+                    P.ANNUAL_FEE_YR2
+                )
+            )
+        END AS ANNUAL_FEE
+
+    , P.NETWORK
+      AS NETWORK
+
+    , O.CAMPAIGN_OFFER_STATUS
+        AS SOURCE_OFFER_STATUS
+
+    , O.CAMPAIGN_OFFER_REMOVED_FLAG
+        AS SOURCE_REMOVED_FLAG
+
+    , O.CAMPAIGN_OFFER_REMOVED_DATE::DATE
+        AS SOURCE_REMOVED_DATE
+
+    , O.RCD_UUID
+        AS SOURCE_RECORD_ID
+
+FROM CSTONE_BIZ.REFERENCE
+    .T_ACM_CAMPAIGN_OFFERS AS O
+
+LEFT JOIN CSTONE_BIZ.REFERENCE
+        .T_ACM_PROGRAMS AS P
+
+    ON O.PROGRAM_CODE =
+        P.PROGRAM_CODE
+
+    AND O.PROGRAM_VERSION_NUMBER =
+        P.PROGRAM_VERSION_NUMBER
+
+WHERE O.CAMPAIGN_GROUP_MAIL_DATE IS NOT NULL
+
+  AND UPPER(
+        TRIM(
+            O.CAMPAIGN_TYPE_CHANNEL_TYPE
+        )
+    ) = 'MAIL'
+
+  AND UPPER(
+        TRIM(
+            O.CAMPAIGN_OFFER_STATUS
+        )
+    ) = 'ACTIVE'
+
+  AND COALESCE(
+        O.CAMPAIGN_OFFER_REMOVED_FLAG,
+        FALSE
+    ) = FALSE
+
+  AND O.CAMPAIGN_IDENTIFICATION_CODE IS NOT NULL
+
+  AND UPPER(
+        TRIM(
+            O.CAMPAIGN_GROUP_CODE
+        )
+    ) IN (
+        'PADM',
+        'MAP',
+        'PAREMAIL'
+    )
+
+  AND UPPER(
+        TRIM(
+            O.PROGRAM_CODE
+        )
+    ) NOT LIKE 'W%'
+
+  AND LENGTH(
+        TRIM(
+            O.CAMPAIGN_OFFER_RESERVATION_CODE
+        )
+    ) <= 6;

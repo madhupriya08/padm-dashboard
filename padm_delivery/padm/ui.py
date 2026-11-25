@@ -22,16 +22,14 @@ STATUS_ROW_COLOR = {
 
 
 def status_badge(status):
-    """Self-contained HTML pill for a campaign STATUS value, color-coded. Caller must render it
-    with unsafe_allow_html=True (used inside header_bar()'s own HTML card)."""
+    """HTML pill for a campaign STATUS value; caller renders with unsafe_allow_html=True."""
     color = STATUS_ROW_COLOR.get(status, "#e0e0e0")
     return (f'<span style="background:{color}; color:#1a2b3c; padding:0.15rem 0.65rem; '
             f'border-radius:999px; font-weight:700; font-size:0.82rem; white-space:nowrap;">{status}</span>')
 
 
 def style_status_column(frame, status_col="STATUS"):
-    """Styler that colors only the STATUS column's background by its value -- for a dataframe
-    listing multiple campaigns, where status_badge()'s markdown badge isn't an option."""
+    """Styler that colors only the STATUS column's background by its value."""
     def row_style(row):
         color = STATUS_ROW_COLOR.get(row[status_col], "")
         return [f"background-color: {color}" if col == status_col and color else "" for col in frame.columns]
@@ -137,8 +135,7 @@ def is_debug():
 
 
 def maybe_show_traceback():
-    """Call right after st.error() in an except block; shows the full traceback when debug mode
-    (sidebar toggle) is on, so a Python-side bug can be diagnosed without reproducing it in Snowsight."""
+    """Call right after st.error(); shows the full traceback when debug mode is on."""
     if is_debug():
         with st.expander("Debug: full traceback", expanded=True):
             st.code(traceback.format_exc())
@@ -150,15 +147,13 @@ def _show_error(exc):
 
 
 def run_action(scope, action, success_message=None, on_success=None):
-    """Runs a write; on success flashes the message and reruns so every tab re-reads.
-    Procedure refusals / Snowflake errors are shown inline and the user's inputs are kept.
-    With debug mode on (sidebar toggle), the full Python traceback is shown too."""
+    """Runs a write; on success flashes the message and reruns. Errors are shown inline, inputs kept."""
     try:
         result = action()
     except ProcedureError as exc:
         _show_error(exc)
         return
-    except Exception as exc:  # Snowflake error text is the most useful thing to show
+    except Exception as exc:
         _show_error(exc)
         return
     if on_success:
@@ -212,8 +207,7 @@ def grid_height(grid, extra_rows=0):
 
 
 def _grid_cell_text(value, fmt):
-    """Only non-zero values are shown, matching the real Segment.xlsx -- NULL and exact-zero
-    cells render blank, not '0' / '0.00%' / '-'."""
+    """NULL and exact-zero cells render blank, not '0' / '0.00%' / '-'."""
     if value is None or (isinstance(value, float) and math.isnan(value)) or pd.isna(value):
         return ""
     try:
@@ -226,8 +220,7 @@ def _grid_cell_text(value, fmt):
 
 
 def styled(grid, fmt, highlight=None):
-    """Styler: blank for NULL/zero cells (see _grid_cell_text), optional per-cell background
-    (DataFrame of CSS)."""
+    """Styler: blank for NULL/zero cells, optional per-cell background (DataFrame of CSS)."""
     styler = grid.style.format(lambda v: _grid_cell_text(v, fmt))
     if highlight is not None:
         styler = styler.apply(lambda _: highlight.reindex_like(grid).fillna(""), axis=None)
@@ -278,9 +271,7 @@ MATRIX_COLUMNS = [
     ("UNDERWRITING_FLAG", "Underwriting Flag"),
 ]
 
-# Matrix tool's segment-to-color decision chain: first substring match wins. Dead/redundant
-# branches from the original (TU PRIOR*/REMAIL PRIOR*/TU Remail*, all already caught by an
-# earlier, more general rule here) are left out -- they'd produce the same color anyway.
+# Matrix tool's segment-to-color decision chain: first substring match wins.
 _SEGMENT_COLOR_CHAIN = [
     (lambda seg, desc: "mla" in desc and "expansion" in seg, "#B8CCE4"),
     (lambda seg, desc: "mla" in desc, "#FCD5B4"),
@@ -311,13 +302,8 @@ def segment_color(segment, description=""):
     return None
 
 
-# Nearest-match palette for showing a segment's real Matrix color as a plain-text emoji square --
-# the only way to show color on a value inside an editable st.data_editor grid, which can't render
-# cell background colors at all. Matched by hue rather than raw RGB distance: the real Matrix
-# colors are mostly pale pastel tints, and RGB distance puts almost all of them nearest to plain
-# white, losing all differentiation. This is a many-to-one approximation (19 distinct Matrix hex
-# colors -> ~7 emoji square colors), not a 1:1 match. Use segment_color() itself (e.g. in a
-# read-only st.dataframe) wherever exact color fidelity matters.
+# Approximates each Matrix hex color as an emoji square, matched by hue (not RGB distance --
+# the real colors are pale pastels that RGB distance puts nearest to plain white).
 _EMOJI_HUE_PALETTE = [
     ("\U0001F7E5", 0 / 360),     # 🟥 red
     ("\U0001F7E7", 30 / 360),    # 🟧 orange
@@ -329,8 +315,7 @@ _EMOJI_HUE_PALETTE = [
 
 
 def segment_color_emoji(segment, description=""):
-    """Nearest emoji-square approximation of segment_color(segment, description), or "" if no
-    Matrix color rule matches. See _EMOJI_HUE_PALETTE for the tradeoff this makes."""
+    """Nearest emoji-square approximation of segment_color(), or "" if no rule matches."""
     hex_color = segment_color(segment, description)
     if hex_color is None:
         return ""
@@ -351,12 +336,9 @@ _VOLUME_TOKEN = re.compile(r"\$?([0-9][0-9,]*\.?[0-9]*)\s*(k|mm|m)\b", re.IGNORE
 
 
 def parse_volume(text):
-    """Parses a volume entered as '160k' -> 160000.0, '2.7mm'/'2.7m' -> 2700000.0,
-    '165,000' -> 165000.0, '165000' -> 165000.0. Also handles a full Matrix-tool-style label
-    pasted whole, e.g. '530-549 184k' or '550-600 $75 2.7MM' -> the trailing K/M/MM number (the
-    convention these labels use for the real volume) is taken as the value. Returns None if
-    nothing recognizable is found (blank, or no number at all) -- the caller decides if that's an
-    error."""
+    """'160k' -> 160000.0, '2.7mm' -> 2700000.0, '165,000'/'165000' -> 165000.0. Also handles a full
+    Matrix-tool label pasted whole (e.g. '530-549 184k') by taking its trailing K/M/MM number.
+    Returns None if nothing recognizable is found."""
     if text is None:
         return None
     s = str(text).strip()
@@ -390,9 +372,8 @@ _PERCENT_SHORTHAND = re.compile(r"^([0-9]*\.?[0-9]+)\s*%?$")
 
 
 def parse_percent(text):
-    """Parses a clean percentage like '50%' or '50' -> 50.0. Returns None for blank text or
-    anything that isn't a single clean number (combined/free-text entries like '100% (605-645) &
-    25% BAU volume (646+)' are intentionally left as None -- those stay free text, not calculated)."""
+    """'50%' or '50' -> 50.0. Returns None for blank or non-clean-number text (combined/free-text
+    entries are intentionally left uncalculated)."""
     if text is None:
         return None
     s = str(text).strip()
@@ -412,9 +393,7 @@ def format_percent(value):
 
 
 def segment_sort_rank(segment, description=""):
-    """Sort key matching the color chain's priority order (a reasonable proxy for the Matrix
-    tool's full 30-name custom_segmentorder, which hasn't been captured in full); unmatched
-    segments sort last."""
+    """Sort key matching the color chain's priority order; unmatched segments sort last."""
     seg, desc = str(segment or "").lower(), str(description or "").lower()
     for i, (rule, _) in enumerate(_SEGMENT_COLOR_CHAIN):
         if rule(seg, desc):
@@ -518,11 +497,8 @@ def totals_display(totals, label, mask_calculated=False):
     return pd.DataFrame([row])
 
 
-# Columns whose real value is per-SEGMENT, not per-offer: VW_PADM_SIGNATURE_PAGE_LIVE's
-# calculation join is on (CAMPAIGN_ID, SEGMENT_ID) only, with no offer dimension, so these are
-# identical across every offer row within the same segment. Everything else in SIGNATURE_COLUMNS
-# is a real per-offer attribute (Test Type, Promo, IVR, etc.) that can differ between offers in
-# the same segment.
+# Columns whose real value is per-SEGMENT, not per-offer -- identical across every offer row
+# in the same segment. Everything else in SIGNATURE_COLUMNS is a real per-offer attribute.
 SEGMENT_LEVEL_COLUMNS = {
     "QUANTITY", "NBR", "BOARDS", "CPP", "MARKETING_EXPENSE", "UNWIND_RATE", "PRE_UNWIND_CPA",
     "POST_UNWIND_CPA", "TIMES_MAILED_0_PERCENTAGE", "TIERS", "POST_UNWIND_BOARDS",
@@ -531,14 +507,10 @@ SEGMENT_LEVEL_COLUMNS = {
 
 
 def collapse_to_segment(rows):
-    """Collapses to one row per segment, not one per offer. Also fixes a real pre-existing issue,
-    not just a cosmetic one: because the segment-level calculated columns above are repeated
-    identically across every offer row in a segment, summing them per-offer (the old flat display)
-    inflated GRAND TOTAL by that segment's offer count. Collapsing first means each segment's
-    numbers are only counted once.
-
-    Offer-level columns that vary between offers in the same segment are shown as a distinct-value
-    summary rather than silently picking one and discarding the rest."""
+    """Collapses to one row per segment, not one per offer -- summing segment-level columns per-offer
+    would otherwise inflate GRAND TOTAL by the segment's offer count. Offer-level columns that vary
+    within a segment are shown as a distinct-value summary instead of picking one and discarding
+    the rest."""
     if rows.empty or "SEGMENT_ID" not in rows.columns:
         return rows
     with_segment = rows[rows["SEGMENT_ID"].notna()].copy()

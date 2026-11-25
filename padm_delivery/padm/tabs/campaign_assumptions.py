@@ -1,5 +1,5 @@
-"""Tab 4 -- Campaign Assumptions (spec 5): campaign- and segment-level, versioned, validated
-from DM_PADM_ASSUMPTION_DEFINITION, prefilled from the previous campaign / previous year."""
+"""Tab 4 -- Campaign Assumptions: campaign-level, versioned, validated from
+DM_PADM_ASSUMPTION_DEFINITION, prefilled from the previous campaign / previous year."""
 
 import pandas as pd
 import streamlit as st
@@ -54,10 +54,8 @@ def _history_with_diffs(history, codes):
 
 def _campaign_level(session, campaign, definitions):
     st.subheader("Campaign-level assumptions")
-    # NBR is the documented fallback for Base NRR when no historical NRR cell exists
-    # ("Base NRR = Boarded Count / Mail Quantity; fallback segment -> campaign NBR" -- see
-    # formulas.GRIDS). Historical NRR data isn't loaded yet, so without this input Base NRR
-    # (and everything downstream of it) has no value at all.
+    # NBR is the fallback for Base NRR when no historical NRR cell exists -- without it, Base NRR
+    # (and everything downstream) has no value at all, since historical NRR isn't loaded yet.
     defs = definitions[definitions["CAMPAIGN_COLUMN"].notna()]
     current = repository.campaign_assumption_current(session, campaign["id"])
     version = int(current.iloc[0]["VERSION_NUMBER"]) if not current.empty else 0
@@ -93,16 +91,7 @@ def _campaign_level(session, campaign, definitions):
         st.dataframe(history, hide_index=True) if not history.empty else st.caption("No versions yet.")
 
 
-# Segment-level assumptions are not shown on this page -- Segment Viewer is the single place
-# to edit segment-level overrides (CPP, Unit Cost, Rate Adjustment, Seasonality, Unwind Rate
-# Adjustment).
-#
-# Note: NBR's segment override (NBR_OVERRIDE, ASSUMPTION_LEVEL='CAMPAIGN_SEGMENT') has
-# ENTERED_ON = 'ASSUMPTIONS' in DM_PADM_ASSUMPTION_DEFINITION's seed -- i.e. it is only
-# editable here, not on Segment Viewer (whose _segment_inputs() only shows codes with
-# ENTERED_ON in ('SEGMENT_VIEWER', 'BOTH')). Without a campaign-level section for it, NBR_OVERRIDE
-# is unreachable from any UI. If NBR needs a segment-level override, change its ENTERED_ON to
-# 'BOTH' in 01_schema.sql's seed (same as CPP) so it picks up on Segment Viewer automatically.
+# Segment-level assumptions are edited on Segment Viewer instead, not here.
 
 
 def render(session):

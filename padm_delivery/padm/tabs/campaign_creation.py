@@ -1,8 +1,5 @@
-"""Tab 1 -- Campaign Creation (spec 2): discover ACM offers, create/activate, select, status flow.
-
-Main and Remail are created together for one chosen month -- there's no separate Campaign Type
-selector; whichever of the two don't already exist for that month are created in a single action
-(each from its own ACM data where it exists, or as a placeholder shell otherwise)."""
+"""Tab 1 -- Campaign Creation: discover ACM offers, create/activate, select, status flow. Main and
+Remail for one chosen month are created together in a single action -- no separate Type selector."""
 
 import datetime as dt
 
