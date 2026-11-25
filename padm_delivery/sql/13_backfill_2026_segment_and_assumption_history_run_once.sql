@@ -1,22 +1,16 @@
+-- Run once only -- NOT idempotent (re-running duplicates mailfile cell rows).
 USE DATABASE DB_RISK;
 USE SCHEMA RISK_SBX;
 
+-- Preview: distinct CAMPAIGN_SOURCE codes seen in 2026 mailfile data (sanity check before the backfill below).
 SELECT DISTINCT CAMPAIGN_SOURCE FROM CSTONE_BIZ.REFERENCE.T_EXPERIAN_MAILFILE
 WHERE MAIL_DATE >= '2026-01-01' AND MAIL_DATE < '2027-01-01';
 
 SELECT DISTINCT CAMPAIGN_SOURCE FROM CSTONE_BIZ.REFERENCE.T_TRANSUNION_MAILFILE
 WHERE MAIL_DATE >= '2026-01-01' AND MAIL_DATE < '2027-01-01';
 
--- CAMPAIGN_SOURCE on the raw mailfile tables is NOT 'PADM'/'MAP'/'PAREMAIL' -- it's a single
--- letter/digit code per the real classification script: 'V','E','A','W','C','D','M',
--- 'R','N','I','G','B','J','Q' for Experian; 'U','1'-'9','H','L','Z' for TransUnion. CAMPAIGN_WAVE
--- below reproduces that script's own CAMPAIGN_SOURCE -> MAIN/REMAIL mapping exactly (its REMAIL
--- codes are additionally gated on CAMPAIGN_SCORE_SEGMENT IN ('02','03','04','05'), kept here).
--- PROSPECT_SEGMENT_TYPE is carried through for completeness/future use but is not currently part
--- of the join below (the original script didn't join on it either -- only SOURCE_NAME/SCORE_TYPE/
--- SCORE_MIN/SCORE_MAX). The former 'LIFT' leg is dropped: LIFT_SCORE isn't a peer bureau score
--- type the way VS3/VS4 are (it buckets into RESPONSE_MODEL_TIER instead, per the same reference
--- script), so no DM_PADM_SCORE_RANGE_RULE_1 row should exist for it and that leg always matched 0.
+-- Backfill DM_PADM_MAILFILE_CELL for 2026 from the raw Experian/TransUnion/MAP mailfile tables,
+-- matched to campaign + segment by score range and reporting month.
 INSERT INTO DM_PADM_MAILFILE_CELL
     (MAILFILE_CELL_ID, CAMPAIGN_ID, SEGMENT_ID, SOURCE_NAME, RESPONSE_MODEL_TIER, TIMES_MAILED_BUCKET,
      MAIL_QUANTITY, IS_CURRENT)
@@ -79,13 +73,7 @@ WITH RAW_MAILFILE AS
     WHERE PRESCREEN_VANTAGE_V3 IS NOT NULL
       AND MAIL_DATE >= '2026-01-01' AND MAIL_DATE < '2027-01-01'
 
-    -- T_MAP_MAILFILE: existing-customer "multiple account" offers. CAMPAIGN_SOURCE is a constant
-    -- 'S' across the whole table -- always folds into REMAIL per the campaign model (MAP +
-    -- PAREMAIL -> REMAIL). Classified RETARGETING: a repeat-contact offer to a current customer,
-    -- not new-prospect outreach. Open item: this table has no RESPONSE_MODEL_TIER or TIMES_MAILED
-    -- column at all, so both are set to a single placeholder value (0 / '0') meaning "no tier/
-    -- times-mailed breakdown exists for MAP" -- if MAP volume needs its own real tier dimension
-    -- later, trace back to a real source column rather than widening this placeholder.
+    -- T_MAP_MAILFILE: existing-customer repeat-contact offers, always REMAIL/RETARGETING; no tier/times-mailed column exists so both are a placeholder (0/'0').
     UNION ALL
     SELECT 'MAP', 'REMAIL', 'RETARGETING', 'N', NULL, NULL, 0, MAIL_DATE, '0',
            'VS3', TRY_CAST(PRESCREEN_VANTAGE_V3 AS NUMBER(10,0))
@@ -121,8 +109,11 @@ FROM MATCHED
 WHERE RESPONSE_MODEL_TIER IS NOT NULL
 GROUP BY CAMPAIGN_ID, SEGMENT_ID, SOURCE_NAME, RESPONSE_MODEL_TIER, TIMES_MAILED_BUCKET;
 
+-- Validation: row count after the mailfile-cell backfill above.
 SELECT COUNT(*) AS mailfile_cell_rows_2026 FROM DM_PADM_MAILFILE_CELL;
 
+-- Backfill a 2026 campaign-level CPP assumption from the average ACM SOURCE_CPP (Unit Cost/NBR/
+-- Unwind Rate/Rate Adjustment/Seasonality have no historical source and are left blank).
 INSERT INTO DM_PADM_CAMPAIGN_ASSUMPTION_VERSION
     (CAMPAIGN_ASSUMPTION_VERSION_ID, CAMPAIGN_ID, VERSION_NUMBER, CPP, IS_CURRENT, CHANGE_REASON,
      ROW_VERSION, UPDATED_BY, UPDATED_TS)
@@ -136,4 +127,5 @@ WHERE C.CAMPAIGN_YEAR = 2026
                   WHERE V.CAMPAIGN_ID = C.CAMPAIGN_ID AND V.IS_CURRENT = TRUE)
 GROUP BY C.CAMPAIGN_ID;
 
+-- Validation: row count after the campaign assumption backfill above.
 SELECT COUNT(*) AS campaign_assumption_rows_2026 FROM DM_PADM_CAMPAIGN_ASSUMPTION_VERSION WHERE IS_CURRENT = TRUE;
