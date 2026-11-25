@@ -108,10 +108,33 @@ def _landing(session) -> None:
     campaign_creation.render(session)
 
 
+# Snowflake login names of the people allowed to open this dashboard in the shared workspace --
+# everyone else sees a plain "work in progress" page instead. Fill in with the real login names
+# from 04_find_user_logins.sql (CURRENT_USER() may or may not be the same as the person's email,
+# depending on how this account's SSO is set up -- check before relying on it).
+AUTHORIZED_USERS = {
+    "REPLACE_WITH_LOGIN_NAME_1",
+    "REPLACE_WITH_LOGIN_NAME_2",
+    "REPLACE_WITH_LOGIN_NAME_3",
+    "REPLACE_WITH_LOGIN_NAME_4",
+    "REPLACE_WITH_LOGIN_NAME_5",
+    "REPLACE_WITH_LOGIN_NAME_6",
+}
+
+
+def _authorized(session) -> bool:
+    current_user = session.sql("SELECT CURRENT_USER()").collect()[0][0]
+    return str(current_user).upper() in AUTHORIZED_USERS
+
+
 def main() -> None:
+    session = get_active_session()
+    if not _authorized(session):
+        st.info("This dashboard is a work in progress and isn't available here yet.")
+        return
+
     st.sidebar.checkbox("Debug mode", key="debug_mode",
                          help="Show full Python tracebacks alongside error messages, for diagnosing issues live.")
-    session = get_active_session()
     campaign = ui.campaign_context(session)
 
     if campaign is None:
