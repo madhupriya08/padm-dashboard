@@ -1,17 +1,4 @@
-"""PADM Sign-Off Dashboard — entry point.
-
-Renders the 8-tab workflow: Campaign Creation, Pre Signature Page, Signature Page,
-Create Segment, Campaign Assumptions, Population Description, Segment Viewer,
-Signature Page 2. The selected campaign lives in st.session_state["campaign_id"]
-and is shared by every tab.
-
-Campaign data goes through ui.campaign_context() (not repository.campaign_header() directly --
-that returns a raw DataFrame with real column names like CAMPAIGN_DISPLAY_NAME and
-CURRENT_WORKING_VERSION_NUMBER, not a dict with keys like "name"/"mail_date"/"version").
-This file renders no header of its own -- each tab's own header (via ui.require_campaign() ->
-ui.header_bar()) stays the single source of truth for campaign status/version/lock state.
-What's here is purely the page shell, branding bar, and the landing screen.
-"""
+"""PADM Sign-Off Dashboard -- entry point. Page shell, branding bar, and the 8-tab workflow."""
 
 import streamlit as st
 from snowflake.snowpark.context import get_active_session
@@ -59,7 +46,6 @@ st.markdown("""
     border-radius: 999px; padding: 0.3rem 0.8rem; font-size: 0.82rem; color: #fff; }
 .padm-step b { opacity: 0.6; margin-right: 0.3rem; }
 
-/* Campaign header card (padm/ui.py header_bar) */
 .padm-header-card { background: linear-gradient(180deg, #ffffff 0%, var(--padm-teal-light) 130%);
     border: 1px solid var(--padm-border); border-radius: 12px; padding: 0.9rem 1.2rem;
     margin-bottom: 0.7rem; box-shadow: 0 2px 10px rgba(10, 30, 60, 0.06); }
@@ -69,22 +55,18 @@ st.markdown("""
     color: var(--padm-muted); text-transform: uppercase; }
 .padm-header-value { font-size: 0.98rem; color: var(--padm-ink); font-weight: 600; }
 
-/* Tabs */
 div[data-testid="stTabs"] button[role="tab"] p { font-weight: 600; }
 div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
     border-bottom: 3px solid var(--padm-teal); }
 div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] p { color: var(--padm-teal); }
 
-/* Sidebar */
 section[data-testid="stSidebar"] { background: #f4f8fa; border-right: 1px solid var(--padm-border); }
 
-/* Buttons */
 button[kind="primary"], button[kind="primaryFormSubmit"] {
     background-color: var(--padm-teal) !important; border-color: var(--padm-teal) !important; }
 button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover {
     background-color: var(--padm-blue) !important; border-color: var(--padm-blue) !important; }
 
-/* Section headers within tabs (st.header()) */
 div[data-testid="stMarkdownContainer"] h2 { color: var(--padm-navy); }
 </style>
 """, unsafe_allow_html=True)
@@ -110,10 +92,7 @@ def _landing(session) -> None:
 
 
 def _authorized(session) -> bool:
-    """Who can open this dashboard in the shared workspace -- everyone else sees a plain
-    "work in progress" page instead. Checks CURRENT_USER() (the person's email on this account)
-    against DM_PADM_DASHBOARD_ACCESS rather than a hardcoded list, so granting or revoking access
-    is a plain INSERT/UPDATE in Snowsight, with no redeploy of this file needed."""
+    """Checks CURRENT_USER() against DM_PADM_DASHBOARD_ACCESS."""
     rows = session.sql(
         f"""
         SELECT COUNT(*) FROM {SCHEMA}.DM_PADM_DASHBOARD_ACCESS
