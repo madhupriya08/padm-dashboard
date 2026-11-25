@@ -217,6 +217,20 @@ USING
 ON T.ACM_SEGMENT_NAME = S.ACM_SEGMENT_NAME
 WHEN NOT MATCHED THEN INSERT (ACM_SEGMENT_NAME, PROSPECT_TYPE) VALUES (S.ACM_SEGMENT_NAME, S.PROSPECT_TYPE);
 
+-- Who is allowed to open the dashboard in the shared workspace. streamlit_app.py checks
+-- CURRENT_USER() (which is the person's email on this account) against this table instead of a
+-- hardcoded list, so granting or revoking access is a plain UPDATE/INSERT here, no redeploy needed.
+-- Seeded empty here on purpose -- the 6 people's emails are added once via a separate one-off
+-- script, not baked into this general deploy script.
+CREATE TABLE IF NOT EXISTS DM_PADM_DASHBOARD_ACCESS
+(
+    EMAIL VARCHAR NOT NULL,
+    ACTIVE_FLAG BOOLEAN NOT NULL DEFAULT TRUE,
+    ADDED_BY VARCHAR NOT NULL DEFAULT CURRENT_USER(),
+    ADDED_TS TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    CONSTRAINT PK_PADM_DASHBOARD_ACCESS PRIMARY KEY (EMAIL)
+);
+
 CREATE TABLE IF NOT EXISTS DM_PADM_MAILFILE_CELL
 (
     MAILFILE_CELL_ID VARCHAR NOT NULL,

@@ -17,6 +17,7 @@ import streamlit as st
 from snowflake.snowpark.context import get_active_session
 
 from padm import ui
+from padm.db import SCHEMA
 from padm.tabs import (
     campaign_assumptions,
     campaign_creation,
@@ -108,23 +109,18 @@ def _landing(session) -> None:
     campaign_creation.render(session)
 
 
-# Snowflake login names of the people allowed to open this dashboard in the shared workspace --
-# everyone else sees a plain "work in progress" page instead. CURRENT_USER() on this account
-# returns the person's email address (confirmed live), so the login name is just the email,
-# uppercased.
-AUTHORIZED_USERS = {
-    "MADHUPRIYA.ALLAM@CREDITONE.COM",
-    "JENNIFER.MASON@CREDITONE.COM",
-    "MISHA.OBERG@CREDITONE.COM",
-    "JESSICA.ANDERSON@CREDITONE.COM",
-    "NINA.NGUYEN@CREDITONE.COM",
-    "BIANCA.BIN@CREDITONE.COM",
-}
-
-
 def _authorized(session) -> bool:
-    current_user = session.sql("SELECT CURRENT_USER()").collect()[0][0]
-    return str(current_user).upper() in AUTHORIZED_USERS
+    """Who can open this dashboard in the shared workspace -- everyone else sees a plain
+    "work in progress" page instead. Checks CURRENT_USER() (the person's email on this account)
+    against DM_PADM_DASHBOARD_ACCESS rather than a hardcoded list, so granting or revoking access
+    is a plain INSERT/UPDATE in Snowsight, with no redeploy of this file needed."""
+    rows = session.sql(
+        f"""
+        SELECT COUNT(*) FROM {SCHEMA}.DM_PADM_DASHBOARD_ACCESS
+        WHERE ACTIVE_FLAG = TRUE AND UPPER(EMAIL) = UPPER(CURRENT_USER())
+        """
+    ).collect()
+    return rows[0][0] > 0
 
 
 def main() -> None:
