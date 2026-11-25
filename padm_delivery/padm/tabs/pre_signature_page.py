@@ -22,7 +22,7 @@ can't render real cell background colors in an editable grid."""
 import streamlit as st
 import pandas as pd
 
-from padm import repository, ui
+from padm import exports, repository, ui
 
 SCOPE = "pre_signature_page"
 NEW_COLUMNS = ["TOTAL_AVAILABLE_VOLUME", "QUANTITY_PERCENTAGE", "QUANTITY_UNITS", "OWNER_APPROVER"]
@@ -204,6 +204,18 @@ def render(session):
 
     if over_allocated_errors:
         st.error("\n\n".join(over_allocated_errors))
+
+    title = f"PADM Pre Signature Page -- {campaign['name']}"
+    subtitle = "Main + Remail combined, as currently shown (includes any unsaved edits)."
+    base = f"padm_pre_signature_page_{campaign['reporting_month']}"
+    try:
+        st.download_button(
+            "Export to Excel", exports.to_excel(edited, title, subtitle), f"{base}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            icon=":material/table_view:", key=f"psp_export_{campaign['id']}",
+        )
+    except ImportError:
+        st.caption("Excel export needs the openpyxl package.")
 
     if st.button("Save tracking fields", type="primary", icon=":material/save:",
                   disabled=locked, key=f"psp_save_{campaign['id']}"):
